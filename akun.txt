@@ -1,0 +1,6 @@
+users = {
+    "admin": {"password": "123", "role": "admin"},
+    "kasir": {"password": "111", "role": "kasir"},
+    "rental": {"password": "222", "role": "rental"},
+    "dapur": {"password": "333", "role": "dapur"},
+    "pembeli": {"password": "000", "role": "pembeli"}}
