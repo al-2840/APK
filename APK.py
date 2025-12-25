@@ -64,7 +64,6 @@ def seed_data():
     add_menu("Kopi Hitam", 30, 10000)
     add_menu("Teh Tarik", 25, 12000)
     add_menu("Jus Alpukat", 20, 15000)
-
 # Delelte User uv.3.3
 def delete_user():
     global users, current_user, current_role
@@ -96,8 +95,8 @@ def delete_user():
 # format duit
 def format_rupiah(n: int) -> str:
     s = f" {n:,}".replace(",", ".")
-    return f"Rp {s}"
-# 
+    return f"Rp {s}" 
+
 def input_int(prompt: str, min_val: int = None, max_val: int = None) -> int:
     while True:
         try:
@@ -123,7 +122,6 @@ def pause(duration: float = 0.02, total: int = 20):
         sys.stdout.flush()
         time.sleep(duration)
     print("\033[32m - Selesai!\033[0m")
-# >> UI Helpers
 # inventaris
 def print_inventory():
     print("\n\033[34m>> INVENTARIS BARANG:\033[0m")
@@ -210,7 +208,6 @@ class Employee:
     id: str
     name: str
     role: str
-
 @dataclass
 class Lokomotif:
     id: str
@@ -874,7 +871,7 @@ def employee_menu():
                 print("\033[31mID tidak ditemukan\033[0m")
         elif choice == "0":
             return
-'---------------------------------------------------------------------------------------------------------- part 4.1 -------------------------------------------'
+'---------------------------------------------------------------------------------------------------------- part 5 -------------------------------------------'
 
 # Penjualan
 def sales_menu():
@@ -1070,7 +1067,7 @@ def service_menu():
 
         elif p == "0":
             return
-'---------------------------------------------------------------------------------------------------------- part 4.2 -------------------------------------------'
+'---------------------------------------------------------------------------------------------------------- part 5.1 -------------------------------------------'
 
 # Pesan Makan 
 def food_menu():
@@ -1218,7 +1215,7 @@ def laporan_detail():
             if m:
                 food_count[m.name] = food_count.get(m.name, 0) + q
     top_items(food_count, "Menu favorit", "porsi")
-'---------------------------------------------------------------------------------------------------------- part 4.3 -------------------------------------------'
+'---------------------------------------------------------------------------------------------------------- part 5.2 -------------------------------------------'
 
 # >> Main Menu 
 def main_menu():
@@ -1371,7 +1368,7 @@ def main():
 ''' ENTRY POINT '''
 if __name__ == "__main__":
     main()
-'---------------------------------------------------------------------------------------------------------- part 4.4 -------------------------------------------'
+'---------------------------------------------------------------------------------------------------------- part 5.3 -------------------------------------------'
 
 # NOte
 """
