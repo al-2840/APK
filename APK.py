@@ -17,7 +17,7 @@ def seed_data():
     add_warehouse("Cabang 1", "Jl. Ahmad Yani No.25", silent=True)
     add_warehouse("Cabang 2", "Jl. Cempaka No.15", silent=True)
 
-    # Inventory (seed data)
+    # Inventaris
     add_inventory("Oli Mesin", 75000, "1", silent=True)
     add_inventory("Filter Udara", 120000, "1", silent=True)
     add_inventory("Ban Lokomotif", 1500000, "1", silent=True)
@@ -29,7 +29,7 @@ def seed_data():
     add_inventory("Dongkrak Hidrolik", 1250000, "2", silent=True)
     add_inventory("Solar", 10000, "3", silent=True)
 
-    # Employees
+    # Karyawan
     add_employee("Andi", "Kasir", silent=True)
     add_employee("Budi", "Service", silent=True)
     add_employee("Citra", "Dapur", silent=True)
@@ -41,7 +41,7 @@ def seed_data():
     add_employee("Indra", "Admin", silent=True)
     add_employee("Joko", "Gudang", silent=True)
 
-    # Lokomotif
+    # Servis
     add_lokomotif("Unit Mesin A", "Perbaikan Mesin", 350000, silent=True)
     add_lokomotif("Unit Mesin B", "Overhaul", 450000, silent=True)
     add_lokomotif("Unit Cat 1", "Pengecatan", 300000, silent=True)
@@ -145,7 +145,24 @@ def inventory_per_gudang():
                 print(f"{item.item_id} | {item.name} | Stok: {qty} unit | Harga Beli: {format_rupiah(item.price)} | Kondisi: {item.status}")
         if not found:
             print("\033[33mTidak ada stok barang di gudang ini\033[0m")
-
+# UI Header
+def head(prompt):
+    print(f"\n\033[44m {prompt} \033[0m")
+    print_line()
+# UI line
+def print_line():
+    print("\033[34m" + "="*40 + "\033[0m")
+# Menu input 
+def input_menu(title: str, options: dict):
+    while True:
+        print(f"\n\033[34m\033[4m ===> {title} ֍ \033[0m\033[0m")
+        for key, desc in options.items():
+            print(f"{key}. {desc}")
+        val = input("Pilih: ").strip()
+        if val in options:
+            return val
+        print(f"\033[31m Pilihan tidak valid. Pilih {', '.join(options.keys())} \033[0m")
+# Validasi input angka
 def input_int(prompt: str, min_val: int = None, max_val: int = None) -> int:
     while True:
         try:
@@ -214,23 +231,6 @@ def print_menu_items():
         return
     for m in store.menu.values():
         print(f"- {m.id} | {m.name} | Harga: {format_rupiah(m.price)} | Stok: {m.stock}")
-# UI Header
-def head(prompt):
-    print(f"\n\033[44m {prompt} \033[0m")
-    print_line()
-# UI line
-def print_line():
-    print("\033[34m" + "="*40 + "\033[0m")
-# Menu input 
-def input_menu(title: str, options: dict):
-    while True:
-        print(f"\n\033[34m\033[4m ===> {title} ֍ \033[0m\033[0m")
-        for key, desc in options.items():
-            print(f"{key}. {desc}")
-        val = input("Pilih: ").strip()
-        if val in options:
-            return val
-        print(f"\033[31m Pilihan tidak valid. Pilih {', '.join(options.keys())} \033[0m")
 # Tambahan validasi input agar tidak crash
 def safe_input(prompt: str) -> str:
     try:
@@ -247,7 +247,7 @@ def top_items(counter: dict, label: str, unit: str = ""):
             print(f"- {nm}: {qty} {unit}")
     else:
         print(f"\n\033[33mBelum ada data {label.lower()}\033[0m")
-
+# Update stok
 def adjust_stock(item_id: str, warehouse_id: str, delta: int, silent=False):
     # Validasi item dan gudang
     if item_id not in store.inventory:
@@ -275,7 +275,7 @@ def adjust_stock(item_id: str, warehouse_id: str, delta: int, silent=False):
     if not silent:
         wh_name = store.warehouses[warehouse_id].name
         print(f"\033[32mStok {item.name} di {wh_name} sekarang {new_stock}\033[0m")
-
+# Mutasi antar gudang
 def transfer_stock(item_id: str, from_wh: str, to_wh: str, qty: int):
     # Validasi item dan gudang
     if item_id not in store.inventory:
@@ -309,6 +309,7 @@ class Employee:
     id: str
     name: str
     role: str
+
 @dataclass
 class Lokomotif:
     id: str
@@ -371,6 +372,7 @@ class InventoryItem:
     def total_stock(self) -> int:
         # total stok fisik dari semua gudang
         return sum(self.stock_by_warehouse.values())
+
 class Warehouse:
     def __init__(self, warehouse_id: str, name: str, address: str):
         self.warehouse_id = warehouse_id
@@ -952,7 +954,12 @@ def inventory_menu():
                 continue
             qty = input_int("Jumlah stok aman untuk dijual: ", min_val=0)
             item.confirmed_stock = qty
-            print(f"\n\033[32mStok aman untuk {item.name} dikonfirmasi: {qty}\033[0m")
+            print(f"\033[32mStok aman untuk {item.name} dikonfirmasi: {qty}\033[0m")
+
+            if item.status == "Siap Jual" and qty > 0:
+                print(f"\033[34mBarang {item.name} sekarang AMAN dan SIAP dijual\033[0m")
+            else:
+                print(f"\033[33mCatatan: Barang {item.name} belum berstatus 'Siap Jual'. Ubah status agar bisa dijual.\033[0m")
         elif choice == "0":
             return
 # GUDANG
