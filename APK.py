@@ -304,7 +304,7 @@ users = {
     "2": {"password": "2", "role": "service"},
     "3": {"password": "3", "role": "dapur"},
     "4": {"password": "4", "role": "pembeli"},
-    "": {""}}
+    "5": {"password": "5", "role": "gudang"}}
 
 current_user = None
 current_role = None
