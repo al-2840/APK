@@ -2,7 +2,7 @@
 Aplikasi       : APLIKASI MANAJEMEN OPERASIONAL TERPADU (AMOT) - Versi 4.0 (target max fix, MAJOR.MINOR.PATCH)
 Fitur          : Mengelola inventaris, karyawan, penjualan, service mobil, dan pemesanan makanan, semuanya terintegrasi dengan laporan ringkas di dashboard.
 Penulis        : 2840 & 2835
-Versi (update) : 3.6
+Versi (update) : 3.7
 """
 import sys, time, ast, json
 from datetime import datetime, timedelta
