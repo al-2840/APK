@@ -206,6 +206,30 @@ def print_inventory():
             status_ui = it.status
 
         print(f"- {it.item_id} | {it.name} | Jumlah Unit: {it.confirmed_stock} | Harga Beli: {format_rupiah(it.price)} | Kategori: {it.category} | Kondisi: {status_ui}")
+# Review Permintaan (Admin)
+def review_requests():
+    print("\n\033[34m>> Permintaan Konfirmasi Barang\033[0m")
+    try:
+        with open("inventory_requests.txt", "r") as f:
+            lines = f.readlines()
+        if not lines:
+            print("\033[33mTidak ada permintaan konfirmasi\033[0m")
+            return
+        for idx, line in enumerate(lines, 1):
+            req = json.loads(line)
+            print(f"{idx}. {req['date']} | User: {req['user']} | Barang: {req['name']} ({req['item_id']}) | Note: {req['note']}")
+        # Admin bisa pilih approve/reject
+        idx_choice = input_int("Pilih nomor permintaan untuk approve (0=keluar): ", min_val=0)
+        if idx_choice == 0: return
+        req = json.loads(lines[idx_choice-1])
+        item = store.inventory.get(req['item_id'])
+        if item and item.confirmed_stock > 0 and item.price > 0:
+            item.status = "Siap Jual"
+            print(f"\033[32mBarang {item.name} dikonfirmasi SIAP JUAL oleh Admin\033[0m")
+        else:
+            print(f"\033[31mBarang {req['name']} tidak valid (stok/harga belum ada)\033[0m")
+    except FileNotFoundError:
+        print("\033[33mBelum ada file permintaan\033[0m")
 # karyawan
 def print_employees():
     print("\n\033[34m>> KARYAWAN:\033[0m")
@@ -896,54 +920,118 @@ def inventory_menu():
             print("\n\033[32mHarga diperbarui\033[0m")
         # Ubah kondisi
         elif choice == "4":
-            print_inventory()
-            item_query = input("\nID/Nama barang: ").strip()
-            item = find_item(item_query)
-            if not item:
-                print("\033[31mBarang tidak ditemukan\033[0m")
-                continue
+            ops_mode = {"1": "Ubah kondisi satu barang", "2": "Ubah kondisi per kategori"}
+            mode = input_menu("Mode Ubah Kondisi", ops_mode)
 
-            status_ops = {"1": "Siap Jual", "2": "Pending", "3": "Rusak", "4": "Hilang", "5": "Kadaluarsa", "6": "Hapus Barang"}
-            status_choice = input_menu("Pilih kondisi", status_ops)
-            new_status = status_ops.get(status_choice, "Pending")
+            # ubah kondisi satu barang
+            if mode == "1":
+                print_inventory()
+                item_query = input("\nID/Nama barang: ").strip()
+                item = find_item(item_query)
+                if not item:
+                    print("\033[31mBarang tidak ditemukan\033[0m")
+                    continue
 
-            # Jika hapus barang
-            if new_status == "Hapus Barang":
-                qty = input_int(f"Jumlah unit {item.name} yang dihapus (0=semua): ", min_val=0)
-                if qty == 0 or qty >= item.confirmed_stock:
-                    # hapus semua
-                    record = {
-                        "date": datetime.now().strftime("%Y-%m-%d (%H:%M)"),
-                        "operator": current_user,
-                        "item_id": item.item_id,
-                        "name": item.name,
-                        "price": item.price,
-                        "reason": "Hapus Barang",
-                        "note": ""}
-                    with open("inventory_deletions.txt", "a") as f:
-                        f.write(json.dumps(record) + "\n")
-                    del store.inventory[item.item_id]
-                    print(f"\n\033[32mBarang {item.name} dihapus seluruhnya\033[0m")
+                status_ops = {
+                    "1": "Siap Jual",
+                    "2": "Pending",
+                    "3": "Rusak",
+                    "4": "Hilang",
+                    "5": "Kadaluarsa",
+                    "6": "Hapus Barang"}
+                status_choice = input_menu("Pilih kondisi", status_ops)
+                new_status = status_ops.get(status_choice, "Pending")
+
+                # Role check utk "Siap Jual"
+                if new_status == "Siap Jual":
+                    if current_role != "admin":
+                        print(f"\033[33mUser tidak bisa langsung konfirmasi 'Siap Jual'. Permintaan dikirim ke Admin.\033[0m")
+                        request = {
+                            "date": datetime.now().strftime("%Y-%m-%d (%H:%M)"),
+                            "user": current_user,
+                            "item_id": item.item_id,
+                            "name": item.name,
+                            "note": "Request konfirmasi Siap Jual"}
+                        with open("inventory_requests.txt", "a") as f:
+                            f.write(json.dumps(request) + "\n")
+                        continue
+                    if item.confirmed_stock <= 0 or item.price <= 0:
+                        print(f"\033[31mTidak bisa ubah {item.name} ke 'Siap Jual' karena stok/harga belum valid\033[0m")
+                        continue
+
+                # Hapus barang
+                if new_status == "Hapus Barang":
+                    qty = input_int(f"Jumlah unit {item.name} yang dihapus (0=semua): ", min_val=0)
+                    if qty == 0 or qty >= item.confirmed_stock:
+                        record = {
+                            "date": datetime.now().strftime("%Y-%m-%d (%H:%M)"),
+                            "operator": current_user,
+                            "item_id": item.item_id,
+                            "name": item.name,
+                            "price": item.price,
+                            "reason": "Hapus Barang",
+                            "note": ""}
+                        with open("inventory_deletions.txt", "a") as f:
+                            f.write(json.dumps(record) + "\n")
+                        del store.inventory[item.item_id]
+                        print(f"\033[32mBarang {item.name} dihapus seluruhnya\033[0m")
+                    else:
+                        item.confirmed_stock -= qty
+                        print(f"\033[32m{qty} unit {item.name} dihapus, sisa {item.confirmed_stock} unit\033[0m")
+                        if item.confirmed_stock > 0:
+                            item.status = "Pending"
+                            print(f"Sisa barang otomatis berstatus \033[33mPending\033[0m")
+
                 else:
-                    # hapus sebagian
-                    item.confirmed_stock -= qty
-                    print(f"\n\033[32m{qty} unit {item.name} dihapus, sisa {item.confirmed_stock} unit\033[0m")
-                    if item.confirmed_stock > 0:
-                        item.status = "Pending"
-                        print(f"\nSisa barang otomatis berstatus \033[33mPending\033[0m")
+                    qty = input_int(f"Jumlah unit {item.name} yang berstatus {new_status} (0=semua): ", min_val=0)
+                    if qty == 0 or qty >= item.confirmed_stock:
+                        item.status = new_status
+                        print(f"\033[32mSemua unit {item.name} sekarang berstatus {new_status}\033[0m")
+                    else:
+                        item.confirmed_stock -= qty
+                        print(f"\033[32m{qty} unit {item.name} berstatus {new_status}, sisa {item.confirmed_stock} unit\033[0m")
+                        if item.confirmed_stock > 0:
+                            item.status = "Pending"
+                            print(f"Sisa barang otomatis berstatus \033[33mPending\033[0m")
 
-            else:
-                # Ubah kondisi barang
-                qty = input_int(f"Jumlah unit {item.name} yang berstatus {new_status} (0=semua): ", min_val=0)
-                if qty == 0 or qty >= item.confirmed_stock:
-                    item.status = new_status
-                    print(f"\n\033[32mSemua unit {item.name} sekarang berstatus {new_status}\033[0m")
+            # ubah kondisi semua barang dalam kategori
+            elif mode == "2":
+                category_code = pilih_kategori()
+                status_ops = {
+                    "1": "Siap Jual",
+                    "2": "Pending",
+                    "3": "Rusak",
+                    "4": "Hilang",
+                    "5": "Kadaluarsa"
+                }
+                status_choice = input_menu("Pilih kondisi", status_ops)
+                new_status = status_ops.get(status_choice, "Pending")
+
+                found = False
+                for it in store.inventory.values():
+                    if it.category == category_code:
+                        if new_status == "Siap Jual":
+                            if current_role != "admin":
+                                print(f"\033[33mUser tidak bisa konfirmasi 'Siap Jual' untuk {it.name}. Permintaan dikirim ke Admin.\033[0m")
+                                request = {
+                                    "date": datetime.now().strftime("%Y-%m-%d (%H:%M)"),
+                                    "user": current_user,
+                                    "item_id": it.item_id,
+                                    "name": it.name,
+                                    "note": "Request konfirmasi Siap Jual"
+                                }
+                                with open("inventory_requests.txt", "a") as f:
+                                    f.write(json.dumps(request) + "\n")
+                                continue
+                            if it.confirmed_stock <= 0 or it.price <= 0:
+                                print(f"\033[31mBarang {it.name} tidak bisa diubah ke 'Siap Jual' (stok/harga belum valid)\033[0m")
+                                continue
+                        it.status = new_status
+                        found = True
+                if found:
+                    print(f"\033[32mBarang di kategori {category_code} berhasil diproses\033[0m")
                 else:
-                    item.confirmed_stock -= qty
-                    print(f"\n\033[32m{qty} unit {item.name} berstatus {new_status}, sisa {item.confirmed_stock} unit\033[0m")
-                    if item.confirmed_stock > 0:
-                        item.status = "Pending"
-                        print(f"\nSisa barang otomatis berstatus \033[33mPending\033[0m")
+                    print(f"\033[33mTidak ada barang di kategori {category_code}\033[0m")
         # Konfir stok aman
         elif choice == "5":
             print_inventory()
@@ -952,16 +1040,17 @@ def inventory_menu():
             if not item:
                 print("\n\033[31mBarang tidak ditemukan\033[0m")
                 continue
+
             qty = input_int("Jumlah stok aman untuk dijual: ", min_val=0)
             item.confirmed_stock = qty
             print(f"\033[32mStok aman untuk {item.name} dikonfirmasi: {qty}\033[0m")
 
             if item.status == "Siap Jual" and qty > 0:
                 print(f"\033[34mBarang {item.name} sekarang AMAN dan SIAP dijual\033[0m")
+            elif qty > 0:
+                print(f"\033[33mCatatan: Stok {item.name} sudah aman, tapi status masih '{item.status}'. Ubah status ke 'Siap Jual' agar bisa dijual.\033[0m")
             else:
-                print(f"\033[33mCatatan: Barang {item.name} belum berstatus 'Siap Jual'. Ubah status agar bisa dijual.\033[0m")
-        elif choice == "0":
-            return
+                print(f"\033[33mCatatan: Stok {item.name} belum dikonfirmasi aman untuk dijual.\033[0m")
 # GUDANG
 def warehouse_menu():
     while True:
@@ -1464,6 +1553,7 @@ def main_menu():
                 "5": "Manajemen Gudang",
                 "6": "Dasbor Gabungan",
                 "7": "Hapus Akun",
+                "8": "Review Permintaan Konfirmasi",   # tambahan
                 "9": "Keluar"}
             choice = input_menu("MENU UTAMA (Admin)", ops)
             if choice == "1": inventory_menu()
@@ -1473,47 +1563,46 @@ def main_menu():
             elif choice == "5": warehouse_menu()
             elif choice == "6": dashboard()
             elif choice == "7": delete_user()
+            elif choice == "8": review_requests()   # fungsi baru untuk admin
             elif choice == "9":
                 current_user, current_role = None, None
-                print("\n\033[32m Logout berhasil \033[0m")
+                print("\n\033[32mBerhasil keluar \033[0m")
                 return
             elif choice == "0": sys.exit(0)
 
         elif current_role == "kasir":
             ops = {
                 "1": "Penjualan Barang",
-                "2": "Dashboard Penjualan",
-                "9": "Logout"}
+                "2": "Dasbor Penjualan",
+                "9": "Keluar"}
             choice = input_menu("MENU UTAMA (Kasir)", ops)
             if choice == "1": sales_menu()
             elif choice == "2": dashboard_kasir()
             elif choice == "9":
                 current_user, current_role = None, None
-                print("\n\033[32mLogout berhasil\033[0m")
+                print("\n\033[32mBerhasil keluar\033[0m")
                 return
             elif choice == "0": sys.exit(0)
 
         elif current_role == "service":
             ops = {
-                "1": "Service Mobil",
-                "2": "Dashboard Service",
-                "9": "Logout"
-            }
-            choice = input_menu("MENU UTAMA (Service)", ops)
+                "1": "Servis Mobil",
+                "2": "Dasbor Servis",
+                "9": "Keluar"}
+            choice = input_menu("MENU UTAMA (Servis)", ops)
             if choice == "1": service_menu()
             elif choice == "2": dashboard_service()
             elif choice == "9":
                 current_user, current_role = None, None
-                print("\n\033[32mLogout berhasil\033[0m")
+                print("\n\033[32mBerhasil keluar\033[0m")
                 return
             elif choice == "0": sys.exit(0)
 
         elif current_role == "dapur":
             ops = {
                 "1": "Menu Makanan",
-                "2": "Dashboard Dapur",
-                "9": "Logout"
-            }
+                "2": "Dasbor Dapur",
+                "9": "Keluar"}
             choice = input_menu("MENU UTAMA (Dapur)", ops)
             if choice == "1": food_menu()
             elif choice == "2": dashboard_dapur()
@@ -1527,21 +1616,21 @@ def main_menu():
             ops = {
                 "1": "Lihat Inventaris Barang",
                 "2": "Kelola Gudang",
-                "3": "Dashboard Gudang",
-                "9": "Logout"}
+                "3": "Dasbor Gudang",
+                "9": "Keluar"
+            }
             choice = input_menu("MENU UTAMA (Gudang)", ops)
             if choice == "1":
-                # hanya lihat inventaris
                 print_inventory()
                 pause()
             elif choice == "2":
-                warehouse_menu()   # menu gudang
+                warehouse_menu()   # menu gudang, tapi logika ubah status "Siap Jual" diarahkan ke request
             elif choice == "3":
                 dashboard_gudang()
                 pause()
             elif choice == "9":
                 current_user, current_role = None, None
-                print("\n\033[32mLogout berhasil\033[0m")
+                print("\n\033[32mBerhasil keluar\033[0m")
                 return
             elif choice == "0":
                 sys.exit(0)
@@ -1551,15 +1640,14 @@ def main_menu():
                 "1": "Lihat Menu Makanan",
                 "2": "Pesan Makanan",
                 "3": "Lihat Pesanan",
-                "9": "Logout"
-            }
+                "9": "Keluar"}
             choice = input_menu("MENU UTAMA (Pembeli)", ops)
             if choice == "1": print_menu_items()
             elif choice == "2": food_menu()
             elif choice == "3": laporan_detail()  # atau tampilkan pesanan pembeli
             elif choice == "9":
                 current_user, current_role = None, None
-                print("\n\033[32mLogout berhasil\033[0m")
+                print("\n\033[32mBerhasil keluar\033[0m")
                 return
             elif choice == "0": sys.exit(0)
 
@@ -1576,7 +1664,7 @@ def start_menu():
             current_user, current_role = None, None  # reset sebelum login baru
             login()
             if current_user:   # login sukses
-                return True    # keluar dari start_menu, lanjut ke main
+                return True    # keluar start_menu, lanjut ke main
         elif choice == "0":
             print("\n\033[32mTerima kasih sudah menggunakan sistem ini\033[0m")
             sys.exit(0)
@@ -1584,12 +1672,12 @@ def start_menu():
 # >> Main
 def main():
     try:
-        if start_menu():       # login dulu
-            seed_data()        # baru isi data
+        if start_menu():       # login
+            seed_data()        # isi data
             load_sales()
             load_services()
             load_food_orders()
-            main_menu()        # masuk ke menu utama
+            main_menu()        # menu utama
     except KeyboardInterrupt:
         print("\n\033[41m Program dihentikan oleh user \033[0m")
         sys.exit(0)
