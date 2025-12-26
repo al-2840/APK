@@ -17,17 +17,17 @@ def seed_data():
     add_warehouse("Cabang 1", "Jl. Ahmad Yani No.25", silent=True)
     add_warehouse("Cabang 2", "Jl. Cempaka No.15", silent=True)
 
-    # Inventaris
-    add_inventory("Oli Mesin", 75000, "1", silent=True)
-    add_inventory("Filter Udara", 120000, "1", silent=True)
-    add_inventory("Ban Lokomotif", 1500000, "1", silent=True)
-    add_inventory("Kampas Rem", 250000, "1", silent=True)
-    add_inventory("Busi", 35000, "1", silent=True)
-    add_inventory("Cat Body Merah", 200000, "2", silent=True)
-    add_inventory("Cat Body Biru", 200000, "2", silent=True)
-    add_inventory("Toolkit Mekanik", 500000, "2", silent=True)
-    add_inventory("Dongkrak Hidrolik", 1250000, "2", silent=True)
-    add_inventory("Solar", 10000, "3", silent=True)
+    # Inventaris dengan stok awal
+    add_inventory("Oli Mesin", 75000, "1", stok_awal=10, silent=True)
+    add_inventory("Filter Udara", 120000, "1", stok_awal=5, silent=True)
+    add_inventory("Ban Lokomotif", 1500000, "1", stok_awal=2, silent=True)
+    add_inventory("Kampas Rem", 250000, "1", stok_awal=8, silent=True)
+    add_inventory("Busi", 35000, "1", stok_awal=20, silent=True)
+    add_inventory("Cat Body Merah", 200000, "2", stok_awal=3, silent=True)
+    add_inventory("Cat Body Biru", 200000, "2", stok_awal=4, silent=True)
+    add_inventory("Toolkit Mekanik", 500000, "2", stok_awal=6, silent=True)
+    add_inventory("Dongkrak Hidrolik", 1250000, "2", stok_awal=1, silent=True)
+    add_inventory("Solar", 10000, "3", stok_awal=100, silent=True)
 
     # Karyawan
     add_employee("Andi", "Kasir", silent=True)
@@ -103,19 +103,7 @@ def pilih_kategori(prompt="Pilih kategori (1-3): "):
         if pilih in KATEGORI_LIST:
             return pilih   # return kode kategori ("1", "2", "3")
         print("\n\033[31mPilihan kategori tidak valid\033[0m")
-# inventaris per gudang
-def print_inventory_by_category():
-    print("\n\033[34m>>> INVENTARIS PER KATEGORI\033[0m")
-    for code, cat in KATEGORI_LIST.items():
-        print(f"\nKategori {code} - {cat}")
-        print("-" * 50)
-        found = False
-        for it in store.inventory.values():
-            if it.category == code:   # simpan kategori sebagai kode
-                found = True
-                print(f"{it.item_id} | {it.name} | Harga: Rp {it.price:,} | Kondisi: {it.status} | Stok Aman: {it.confirmed_stock}")
-        if not found:
-            print("\033[33mTidak ada barang di kategori ini\033[0m")
+
 # format duit
 def format_rupiah(n: int) -> str:
     s = f" {n:,}".replace(",", ".")
@@ -188,6 +176,19 @@ def pause(duration: float = 0.02, total: int = 20):
         sys.stdout.flush()
         time.sleep(duration)
     print("\033[32m - Selesai!\033[0m")
+# inventaris per gudang
+def print_inventory_by_category():
+    print("\n\033[34m>>> INVENTARIS PER KATEGORI\033[0m")
+    for code, cat in KATEGORI_LIST.items():
+        print(f"\nKategori {code} - {cat}")
+        print("-" * 50)
+        found = False
+        for it in store.inventory.values():
+            if it.category == code:   # simpan kategori sebagai kode
+                found = True
+                print(f"{it.item_id} | {it.name} | Harga: Rp {it.price:,} | Kondisi: {it.status} | Stok Aman: {it.confirmed_stock}")
+        if not found:
+            print("\033[33mTidak ada barang di kategori ini\033[0m")
 # inventaris
 def print_inventory():
     print("\n\033[34m>> INVENTARIS BARANG:\033[0m")
@@ -208,7 +209,7 @@ def print_inventory():
         print(f"- {it.item_id} | {it.name} | Jumlah Unit: {it.confirmed_stock} | Harga Beli: {format_rupiah(it.price)} | Kategori: {it.category} | Kondisi: {status_ui}")
 # Review Permintaan (Admin)
 def review_requests():
-    print("\n\033[34m>> Permintaan Konfirmasi Barang\033[0m")
+    print("\n\033[34m>>> REVIEW PERMINTAAN KONFIRMASI\033[0m")
     try:
         with open("inventory_requests.txt", "r") as f:
             lines = f.readlines()
@@ -217,9 +218,8 @@ def review_requests():
             return
         for idx, line in enumerate(lines, 1):
             req = json.loads(line)
-            print(f"{idx}. {req['date']} | User: {req['user']} | Barang: {req['name']} ({req['item_id']}) | Note: {req['note']}")
-        # Admin bisa pilih approve/reject
-        idx_choice = input_int("Pilih nomor permintaan untuk approve (0=keluar): ", min_val=0)
+            print(f"{idx}. {req['date']} | User: {req['user']} | Barang: {req['name']} ({req['item_id']})")
+        idx_choice = input_int("Pilih nomor untuk approve (0=keluar): ", min_val=0)
         if idx_choice == 0: return
         req = json.loads(lines[idx_choice-1])
         item = store.inventory.get(req['item_id'])
@@ -230,6 +230,51 @@ def review_requests():
             print(f"\033[31mBarang {req['name']} tidak valid (stok/harga belum ada)\033[0m")
     except FileNotFoundError:
         print("\033[33mBelum ada file permintaan\033[0m")
+# Riwayat 
+def riwayat_barang():
+    print("\n\033[34m>>> LIHAT RIWAYAT BARANG\033[0m")
+    ops = {
+        "1": "Semua Riwayat",
+        "2": "Filter berdasarkan Tanggal",
+        "3": "Filter berdasarkan Kategori"
+    }
+    choice = input_menu("Opsi Riwayat", ops)
+
+    if choice == "1":
+        tampilkan_riwayat()
+    elif choice == "2":
+        tanggal = input("Masukkan tanggal (YYYY-MM-DD): ").strip()
+        tampilkan_riwayat(filter_date=tanggal)
+    elif choice == "3":
+        category_code = pilih_kategori()
+        tampilkan_riwayat(filter_category=category_code)
+# barang masuk/keluar
+def tampilkan_riwayat(filter_date=None, filter_category=None):
+    print("\n\033[34m>> Riwayat Barang Masuk\033[0m")
+    try:
+        with open("inventory_log.txt", "r") as f:
+            for line in f:
+                rec = json.loads(line)
+                if filter_date and rec["date"] != filter_date:
+                    continue
+                if filter_category and rec["kategori"] != filter_category:
+                    continue
+                print(f"{rec['date']} | {rec['name']} | Jumlah: {rec['jumlah']} | Harga: {rec['harga']} | Kategori: {rec['kategori']}")
+    except FileNotFoundError:
+        print("\033[33mBelum ada riwayat barang masuk\033[0m")
+
+    print("\n\033[34m>> Riwayat Barang Dihapus\033[0m")
+    try:
+        with open("inventory_deletions.txt", "r") as f:
+            for line in f:
+                rec = json.loads(line)
+                if filter_date and rec["date"] != filter_date:
+                    continue
+                if filter_category and rec["kategori"] != KATEGORI_LIST.get(filter_category, filter_category):
+                    continue
+                print(f"{rec['date']} | {rec['name']} | Harga: {rec['price']} | Reason: {rec['reason']}")
+    except FileNotFoundError:
+        print("\033[33mBelum ada riwayat barang dihapus\033[0m")
 # karyawan
 def print_employees():
     print("\n\033[34m>> KARYAWAN:\033[0m")
@@ -569,7 +614,7 @@ def load_food_orders():
         pass
 
 ''' CRUD MODULES '''
-def add_inventory(name: str, price: int, category: str = "Umum", silent=False):
+def add_inventory(name: str, price: int, category: str = "Umum", stok_awal: int = 0, silent=False):
     # Cek duplikat nama barang
     for it in store.inventory.values():
         if it.name.lower() == name.lower():
@@ -580,7 +625,22 @@ def add_inventory(name: str, price: int, category: str = "Umum", silent=False):
     # Buat ID baru
     item_id = store.gen_id("INV")
     item = InventoryItem(item_id, name, price, category)
+    item.confirmed_stock = stok_awal   # stok awal dari parameter
     store.inventory[item_id] = item
+
+    # Catat ke log
+    record = {
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "user": current_user if not silent else "system",
+        "item_id": item_id,
+        "name": name,
+        "jumlah": item.confirmed_stock,
+        "harga": price,
+        "kategori": KATEGORI_LIST.get(category, category),
+        "status": "Pending"
+    }
+    with open("inventory_log.txt", "a") as f:
+        f.write(json.dumps(record) + "\n")
 
     if not silent:
         print(f"\033[32mBarang {name} ditambahkan dengan ID {item_id}\033[0m")
@@ -593,6 +653,7 @@ def edit_inventory(item_id: str, new_name: str = None, new_price: int = None,
         return
 
     item = store.inventory[item_id]
+    # hapus
     if delete:
         record = {
             "date": datetime.now().strftime("%Y-%m-%d (%H:%M)"),
@@ -601,7 +662,8 @@ def edit_inventory(item_id: str, new_name: str = None, new_price: int = None,
             "name": item.name,
             "price": item.price,
             "reason": reason if reason else "Tidak ada alasan",
-            "note": note if note else ""}
+            "note": note if note else ""
+        }
         with open("inventory_deletions.txt", "a") as f:
             f.write(json.dumps(record) + "\n")
 
@@ -610,14 +672,31 @@ def edit_inventory(item_id: str, new_name: str = None, new_price: int = None,
         print(f"\033[32m Barang {item_id} ({item.name}) berhasil dihapus \033[0m")
         return
 
+    # ubah/modif
+    changes = {}
     if new_name:
+        changes["name"] = (item.name, new_name)
         item.name = new_name
     if new_price is not None:
+        changes["price"] = (item.price, new_price)
         item.price = new_price
     if new_category:
+        changes["category"] = (item.category, KATEGORI_LIST.get(new_category, new_category))
         item.category = new_category
     if new_confirmed_stock is not None:
+        changes["confirmed_stock"] = (item.confirmed_stock, new_confirmed_stock)
         item.confirmed_stock = new_confirmed_stock
+
+    # catat ke log
+    if changes:
+        record = {
+            "date": datetime.now().strftime("%Y-%m-%d (%H:%M)"),
+            "operator": current_user,
+            "item_id": item_id,
+            "name": item.name,
+            "changes": changes}
+        with open("inventory_log.txt", "a") as f:
+            f.write(json.dumps(record) + "\n")
 
     print(f"\033[32mBarang {item_id} berhasil diperbarui\033[0m")
 
@@ -857,200 +936,162 @@ def dashboard_gudang():
 # >> Module menus
 # INVENTARIS (clear v.3.7)
 def inventory_menu():
+    global current_role
     while True:
-        h = head("KELOLA INVENTARIS")
-        ops = {
-            "1": "Lihat Inventaris",
-            "2": "Tambah barang",
-            "3": "Ubah harga barang",
-            "4": "Ubah kondisi barang",
-            "5": "Konfirmasi stok aman",
-            "0": "Kembali"}
-        choice = input_menu("Data Inventaris", ops)
-        # Daftar barang
-        if choice == "1":
-            ops_view = {"1": "Lihat semua inventaris","2": "Lihat per kategori"}
-            sub_choice = input_menu("Opsi Lihat Inventaris", ops_view)
-            # Semua barang
-            if sub_choice == "1":
-                print_inventory()
-            # Per kategori
-            elif sub_choice == "2":
+        # bagian gudang/inventaris
+        if current_role == "gudang":
+            ops = {
+                "1": "Tambah Barang",
+                "2": "Ubah/Hapus Barang",
+                "3": "Lihat Riwayat Barang",
+                "4": "Minta Konfirmasi Siap Jual",
+                "9": "Kembali"}
+            choice = input_menu("MENU INVENTARIS (Inventaris)", ops)
+
+            # Tambah barang
+            if choice == "1":
+                name = input("Nama barang: ").strip()
+                jumlah = input_int("Jumlah unit: ", min_val=1)
+                harga_beli = input_int("Harga beli per unit: ", min_val=1)
                 category_code = pilih_kategori()
-                category_name = KATEGORI_LIST[category_code]
-                print(f"\n\033[34m>>> INVENTARIS KATEGORI {category_code} - {category_name}\033[0m")
-                found = False
-                for it in store.inventory.values():
-                    if it.category == category_code:
-                        found = True
+                item_id = store.gen_id("INV")
 
-                        # UI warna kondisi
-                        if it.status in ["Rusak", "Hilang"]:
-                            status_ui = f"\033[31m{it.status}\033[0m"
-                        elif it.status == "Pending":
-                            status_ui = f"\033[33m{it.status}\033[0m"
-                        elif it.status == "Siap Jual":
-                            status_ui = f"\033[32m{it.status}\033[0m"
-                        else:
-                            status_ui = it.status
+                store.inventory[item_id] = InventoryItem(
+                    item_id=item_id,
+                    name=name,
+                    price=harga_beli,
+                    category=category_code)
+                store.inventory[item_id].confirmed_stock = jumlah
 
-                        print(f"- {it.item_id} | {it.name} | Jumlah Unit: {it.confirmed_stock} | Harga Beli: {format_rupiah(it.price)} | Kategori: {it.category} | Kondisi: {status_ui}")
-                if not found:
-                    print("\033[33mTidak ada barang di kategori ini\033[0m")
-            pause()
-        # Tambah barang
-        elif choice == "2":
-            name = input("Nama barang: ").strip()
-            harga_beli = input_int("Harga beli per unit: ", min_val=0)
-            category_code = pilih_kategori()
-            category_name = KATEGORI_LIST[category_code]
+                record = {
+                    "date": datetime.now().strftime("%Y-%m-%d"),
+                    "user": current_user,
+                    "item_id": item_id,
+                    "name": name,
+                    "jumlah": jumlah,
+                    "harga": harga_beli,
+                    "kategori": category_code,
+                    "status": "Pending"}
+                with open("inventory_log.txt", "a") as f:
+                    f.write(json.dumps(record) + "\n")
 
-            add_inventory(name, harga_beli, category_code, silent=False)
-            print(f"\n\033[33mBarang {name} berhasil ditambahkan ke kategori {category_name}\033[0m")
-        # Ubah 
-        elif choice == "3":
-            print_inventory()
-            item_query = input("\nID/Nama barang: ").strip()
-            item = find_item(item_query)
-            if not item:
-                print("\033[31mBarang tidak ditemukan\033[0m")
-                continue
-            price = input_int("Harga baru: ", min_val=0)
-            item.price = price
-            print("\n\033[32mHarga diperbarui\033[0m")
-        # Ubah kondisi
-        elif choice == "4":
-            ops_mode = {"1": "Ubah kondisi satu barang", "2": "Ubah kondisi per kategori"}
-            mode = input_menu("Mode Ubah Kondisi", ops_mode)
-
-            # ubah kondisi satu barang
-            if mode == "1":
+                print(f"\033[32mBarang {name} ditambahkan ke gudang\033[0m")
+            # Ubah/Hapus barang
+            elif choice == "2":
                 print_inventory()
-                item_query = input("\nID/Nama barang: ").strip()
-                item = find_item(item_query)
-                if not item:
+                item_query = input("\nID/Nama (gunakan koma): ").strip()
+                items = find_item(item_query)   # fungsi pencarian banyak ID/Nama
+
+                if not items:
                     print("\033[31mBarang tidak ditemukan\033[0m")
                     continue
 
-                status_ops = {
-                    "1": "Siap Jual",
-                    "2": "Pending",
-                    "3": "Rusak",
-                    "4": "Hilang",
-                    "5": "Kadaluarsa",
-                    "6": "Hapus Barang"}
-                status_choice = input_menu("Pilih kondisi", status_ops)
-                new_status = status_ops.get(status_choice, "Pending")
+                for item in items:
+                    ops_edit = {
+                        "1": "Ubah Harga",
+                        "2": "Ubah Kondisi",
+                        "3": "Ubah Stok",
+                        "4": "Hapus Barang"}
+                    sub_choice = input_menu(f"Perubahan Data Barang {item.item_id} | {item.name}", ops_edit)
 
-                # Role check utk "Siap Jual"
-                if new_status == "Siap Jual":
-                    if current_role != "admin":
-                        print(f"\033[33mUser tidak bisa langsung konfirmasi 'Siap Jual'. Permintaan dikirim ke Admin.\033[0m")
-                        request = {
-                            "date": datetime.now().strftime("%Y-%m-%d (%H:%M)"),
+                    # Ubah harga
+                    if sub_choice == "1":
+                        price = input_int(f"Harga baru untuk {item.name}: ", min_val=1)
+                        old_price = item.price
+                        item.price = price
+                        record = {
+                            "date": datetime.now().strftime("%Y-%m-%d"),
                             "user": current_user,
                             "item_id": item.item_id,
                             "name": item.name,
-                            "note": "Request konfirmasi Siap Jual"}
-                        with open("inventory_requests.txt", "a") as f:
-                            f.write(json.dumps(request) + "\n")
-                        continue
-                    if item.confirmed_stock <= 0 or item.price <= 0:
-                        print(f"\033[31mTidak bisa ubah {item.name} ke 'Siap Jual' karena stok/harga belum valid\033[0m")
-                        continue
-
-                # Hapus barang
-                if new_status == "Hapus Barang":
-                    qty = input_int(f"Jumlah unit {item.name} yang dihapus (0=semua): ", min_val=0)
-                    if qty == 0 or qty >= item.confirmed_stock:
+                            "action": "Perubahan Harga Barang",
+                            "changes": {"price": [old_price, price]}}
+                        with open("inventory_log.txt", "a") as f:
+                            f.write(json.dumps(record) + "\n")
+                        print(f"\033[32mHarga {item.name} diperbarui dari Rp{old_price:,} ke Rp{price:,}\033[0m")
+                    # Ubah kondisi
+                    elif sub_choice == "2":
+                        kondisi_ops = {"1": "Rusak", "2": "Hilang", "3": "Kadaluarsa"}
+                        kondisi_choice = input_menu("Pilih kondisi", kondisi_ops)
+                        old_status = item.status
+                        item.status = kondisi_ops.get(kondisi_choice, "Pending")
                         record = {
-                            "date": datetime.now().strftime("%Y-%m-%d (%H:%M)"),
-                            "operator": current_user,
+                            "date": datetime.now().strftime("%Y-%m-%d"),
+                            "user": current_user,
+                            "item_id": item.item_id,
+                            "name": item.name,
+                            "action": "Perubahan Kondisi Barang",
+                            "changes": {"status": [old_status, item.status]}}
+                        with open("inventory_log.txt", "a") as f:
+                            f.write(json.dumps(record) + "\n")
+                        print(f"\033[32mBarang {item.name} sekarang berstatus {item.status}\033[0m")
+                    # Ubah stok
+                    elif sub_choice == "3":
+                        stok_baru = input_int(f"Stok baru untuk {item.name}: ", min_val=0)
+                        old_stok = item.confirmed_stock
+                        item.confirmed_stock = stok_baru
+                        record = {
+                            "date": datetime.now().strftime("%Y-%m-%d"),
+                            "user": current_user,
+                            "item_id": item.item_id,
+                            "name": item.name,
+                            "action": "Perubahan Stok Barang",
+                            "changes": {"stok": [old_stok, stok_baru]}}
+                        with open("inventory_log.txt", "a") as f:
+                            f.write(json.dumps(record) + "\n")
+                        print(f"\033[32mStok {item.name} diperbarui dari {old_stok} ke {stok_baru}\033[0m")
+                    # Hapus barang
+                    elif sub_choice == "4":
+                        record = {
+                            "date": datetime.now().strftime("%Y-%m-%d"),
+                            "user": current_user,
                             "item_id": item.item_id,
                             "name": item.name,
                             "price": item.price,
-                            "reason": "Hapus Barang",
-                            "note": ""}
+                            "action": "Penghapusan Barang",
+                            "reason": "Hapus Barang"}
                         with open("inventory_deletions.txt", "a") as f:
                             f.write(json.dumps(record) + "\n")
                         del store.inventory[item.item_id]
-                        print(f"\033[32mBarang {item.name} dihapus seluruhnya\033[0m")
-                    else:
-                        item.confirmed_stock -= qty
-                        print(f"\033[32m{qty} unit {item.name} dihapus, sisa {item.confirmed_stock} unit\033[0m")
-                        if item.confirmed_stock > 0:
-                            item.status = "Pending"
-                            print(f"Sisa barang otomatis berstatus \033[33mPending\033[0m")
+                        print(f"\033[32mBarang {item.name} dihapus dari gudang\033[0m")
+            # riwayat barang masuk/keluar
+            elif choice == "3":
+                riwayat_barang()
+            # Minta konfirmasi siap jual
+            elif choice == "4":
+                print_inventory()
+                item_query = input("\nID/Nama (gunakan koma): ").strip()
+                items = find_item(item_query)
 
-                else:
-                    qty = input_int(f"Jumlah unit {item.name} yang berstatus {new_status} (0=semua): ", min_val=0)
-                    if qty == 0 or qty >= item.confirmed_stock:
-                        item.status = new_status
-                        print(f"\033[32mSemua unit {item.name} sekarang berstatus {new_status}\033[0m")
-                    else:
-                        item.confirmed_stock -= qty
-                        print(f"\033[32m{qty} unit {item.name} berstatus {new_status}, sisa {item.confirmed_stock} unit\033[0m")
-                        if item.confirmed_stock > 0:
-                            item.status = "Pending"
-                            print(f"Sisa barang otomatis berstatus \033[33mPending\033[0m")
+                if not items:
+                    print("\033[31mBarang tidak ditemukan\033[0m")
+                    continue
 
-            # ubah kondisi semua barang dalam kategori
-            elif mode == "2":
-                category_code = pilih_kategori()
-                status_ops = {
-                    "1": "Siap Jual",
-                    "2": "Pending",
-                    "3": "Rusak",
-                    "4": "Hilang",
-                    "5": "Kadaluarsa"
-                }
-                status_choice = input_menu("Pilih kondisi", status_ops)
-                new_status = status_ops.get(status_choice, "Pending")
+                for item in items:
+                    request = {
+                        "date": datetime.now().strftime("%Y-%m-%d"),
+                        "user": current_user,
+                        "item_id": item.item_id,
+                        "name": item.name,
+                        "note": "Request konfirmasi Siap Jual"}
+                    with open("inventory_requests.txt", "a") as f:
+                        f.write(json.dumps(request) + "\n")
+                    print(f"\033[33mPermintaan konfirmasi {item.name} dikirim ke Admin\033[0m")
+            elif choice == "9":
+                return
 
-                found = False
-                for it in store.inventory.values():
-                    if it.category == category_code:
-                        if new_status == "Siap Jual":
-                            if current_role != "admin":
-                                print(f"\033[33mUser tidak bisa konfirmasi 'Siap Jual' untuk {it.name}. Permintaan dikirim ke Admin.\033[0m")
-                                request = {
-                                    "date": datetime.now().strftime("%Y-%m-%d (%H:%M)"),
-                                    "user": current_user,
-                                    "item_id": it.item_id,
-                                    "name": it.name,
-                                    "note": "Request konfirmasi Siap Jual"
-                                }
-                                with open("inventory_requests.txt", "a") as f:
-                                    f.write(json.dumps(request) + "\n")
-                                continue
-                            if it.confirmed_stock <= 0 or it.price <= 0:
-                                print(f"\033[31mBarang {it.name} tidak bisa diubah ke 'Siap Jual' (stok/harga belum valid)\033[0m")
-                                continue
-                        it.status = new_status
-                        found = True
-                if found:
-                    print(f"\033[32mBarang di kategori {category_code} berhasil diproses\033[0m")
-                else:
-                    print(f"\033[33mTidak ada barang di kategori {category_code}\033[0m")
-        # Konfir stok aman
-        elif choice == "5":
-            print_inventory()
-            item_query = input("\nID/Nama barang: ").strip()
-            item = find_item(item_query)
-            if not item:
-                print("\n\033[31mBarang tidak ditemukan\033[0m")
-                continue
+        # bagian admin
+        elif current_role == "admin":
+            ops = {"1": "Lihat Riwayat Barang Masuk/Keluar", "2": "Review Permintaan Konfirmasi", "9": "Kembali"}
+            choice = input_menu("MENU INVENTARIS (Admin)", ops)
 
-            qty = input_int("Jumlah stok aman untuk dijual: ", min_val=0)
-            item.confirmed_stock = qty
-            print(f"\033[32mStok aman untuk {item.name} dikonfirmasi: {qty}\033[0m")
+            if choice == "1":
+                riwayat_barang()
+            elif choice == "2":
+                review_requests()
+            elif choice == "9":
+                return
 
-            if item.status == "Siap Jual" and qty > 0:
-                print(f"\033[34mBarang {item.name} sekarang AMAN dan SIAP dijual\033[0m")
-            elif qty > 0:
-                print(f"\033[33mCatatan: Stok {item.name} sudah aman, tapi status masih '{item.status}'. Ubah status ke 'Siap Jual' agar bisa dijual.\033[0m")
-            else:
-                print(f"\033[33mCatatan: Stok {item.name} belum dikonfirmasi aman untuk dijual.\033[0m")
 # GUDANG
 def warehouse_menu():
     while True:
@@ -1118,6 +1159,7 @@ def warehouse_menu():
             pause()
         elif choice == "0":
             return
+
 # Karyawan (PERLU TAMBHAN)
 def employee_menu():
     while True:
@@ -1160,7 +1202,6 @@ def employee_menu():
                 print(f"\n\033[31mKaryawan dengan ID {emp_id} tidak ditemukan\033[0m")
         elif choice == "0":
             return
-'---------------------------------------------------------------------------------------------------------- part 5 -------------------------------------------'
 
 # Penjualan (PERLU TAMBHAN)
 def sales_menu():
@@ -1238,6 +1279,7 @@ def sales_menu():
             pause()
         elif p == "0":
             return
+
 # Service (PERLU TAMBHAN)
 def service_menu():
     while True:
@@ -1381,7 +1423,6 @@ def service_menu():
 
         elif p == "0":
             return
-'---------------------------------------------------------------------------------------------------------- part 5.1 -------------------------------------------'
 
 # Pesan Makan (PERLU TAMBHAN)
 def food_menu():
@@ -1500,6 +1541,7 @@ def food_menu():
                 print("\033[31mID tidak ditemukan\033[0m")
         elif p == "0":
             return
+
 # Laporan (PERLU TAMBHAN)
 def laporan_detail():
     head("LAPORAN DETAIL")
@@ -1553,7 +1595,7 @@ def main_menu():
                 "5": "Manajemen Gudang",
                 "6": "Dasbor Gabungan",
                 "7": "Hapus Akun",
-                "8": "Review Permintaan Konfirmasi",   # tambahan
+                "8": "Review Permintaan Konfirmasi",
                 "9": "Keluar"}
             choice = input_menu("MENU UTAMA (Admin)", ops)
             if choice == "1": inventory_menu()
@@ -1563,7 +1605,7 @@ def main_menu():
             elif choice == "5": warehouse_menu()
             elif choice == "6": dashboard()
             elif choice == "7": delete_user()
-            elif choice == "8": review_requests()   # fungsi baru untuk admin
+            elif choice == "8": review_requests()
             elif choice == "9":
                 current_user, current_role = None, None
                 print("\n\033[32mBerhasil keluar \033[0m")
@@ -1614,15 +1656,13 @@ def main_menu():
 
         elif current_role == "gudang":
             ops = {
-                "1": "Lihat Inventaris Barang",
+                "1": "Kelola Inventaris",
                 "2": "Kelola Gudang",
                 "3": "Dasbor Gudang",
-                "9": "Keluar"
-            }
+                "9": "Keluar"}
             choice = input_menu("MENU UTAMA (Gudang)", ops)
             if choice == "1":
-                print_inventory()
-                pause()
+                inventory_menu()
             elif choice == "2":
                 warehouse_menu()   # menu gudang, tapi logika ubah status "Siap Jual" diarahkan ke request
             elif choice == "3":
