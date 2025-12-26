@@ -470,11 +470,11 @@ store = Store()
 # >> Data user uv.3.0
 users = {
     "admin": {"password": "123", "role": "admin"},
-    "1": {"password": "1", "role": "kasir"},
+    "1": {"password": "1", "role": "gudang"},
     "2": {"password": "2", "role": "service"},
     "3": {"password": "3", "role": "dapur"},
-    "4": {"password": "4", "role": "pembeli"},
-    "5": {"password": "5", "role": "gudang"}}
+    "4": {"password": "4", "role": "kasir"},
+    "5": {"password": "5", "role": "pembeli"}}
 
 current_user = None
 current_role = None
