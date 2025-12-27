@@ -189,6 +189,73 @@ def print_inventory_by_category():
                 print(f"{it.item_id} | {it.name} | Harga: Rp {it.price:,} | Kondisi: {it.status} | Stok Aman: {it.confirmed_stock}")
         if not found:
             print("\033[33mTidak ada barang di kategori ini\033[0m")
+# Chek per role akses
+def check_access(required_role):
+    if current_role != required_role:
+        print(f"\033[31mAkses ditolak: hanya {required_role} yang bisa menjalankan menu ini\033[0m")
+        return False
+    return True
+# pencatatan aktivitas karyawan
+def log_employee_action(user, role, action, extra=None, filename="employee_log.txt"):
+    record = {
+        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "user": user,
+        "role": role,
+        "action": action}
+    if extra:
+        record.update(extra)
+    with open(filename, "a") as f:
+        f.write(json.dumps(record) + "\n")
+# pencatatan inventaris
+def log_inventory(action, item, extra=None, filename="inventory_log.txt"):
+    record = {
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "user": current_user,
+        "item_id": item.item_id,
+        "name": item.name,
+        "action": action}
+    if extra:
+        record.update(extra)
+    with open(filename, "a") as f:
+        f.write(json.dumps(record) + "\n")
+# pencatatan gudang
+def log_warehouse(action, item_id, from_wh=None, to_wh=None, qty=None, extra=None, filename="warehouse_log.txt"):
+    record = {
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "user": current_user,
+        "action": action,
+        "item_id": item_id,
+        "from": from_wh,
+        "to": to_wh,
+        "qty": qty}
+    if extra:
+        record.update(extra)
+    with open(filename, "a") as f:
+        f.write(json.dumps(record) + "\n")
+# Pencatatan servis
+def log_service(action, record, filename="services.txt"):
+    data = {
+        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "user": current_user,
+        "action": action,
+        **record.__dict__
+    }
+    with open(filename, "a") as f:
+        f.write(json.dumps(data) + "\n")
+# pencatatan penjualan
+def log_sale(sale_type, ref_id, amount, extra=None, filename="sales.txt"):
+    record = {
+        "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "user": current_user,
+        "role": current_role,
+        "type": sale_type,
+        "ref": ref_id,
+        "amount": amount
+    }
+    if extra:
+        record.update(extra)
+    with open(filename, "a") as f:
+        f.write(json.dumps(record) + "\n")
 # inventaris
 def print_inventory():
     print("\n\033[34m>> INVENTARIS BARANG:\033[0m")
@@ -207,7 +274,7 @@ def print_inventory():
             status_ui = it.status
 
         print(f"- {it.item_id} | {it.name} | Jumlah Unit: {it.confirmed_stock} | Harga Beli: {format_rupiah(it.price)} | Kategori: {it.category} | Kondisi: {status_ui}")
-# Review Permintaan (Admin)
+# Review Permintaan (to Admin)
 def review_requests():
     print("\n\033[34m>>> REVIEW PERMINTAAN KONFIRMASI\033[0m")
     try:
@@ -300,6 +367,61 @@ def print_menu_items():
         return
     for m in store.menu.values():
         print(f"- {m.id} | {m.name} | Harga: {format_rupiah(m.price)} | Stok: {m.stock}")
+# Sparepart
+def pilih_sparepart():
+    parts_used = []
+    parts_cost = 0
+    while True:
+        print_inventory()
+        part_id = input("ID sparepart (Enter untuk selesai): ").strip().upper()
+        if part_id == "":
+            break
+        if part_id not in store.inventory:
+            print("\033[31mID tidak ditemukan\033[0m")
+            continue
+        qty = input_int("Jumlah: ", min_val=1)
+        if qty > store.inventory[part_id].stock:
+            print("\033[31mStok tidak cukup\033[0m")
+            continue
+        # kurangi stok
+        store.inventory[part_id].stock -= qty
+        parts_used.append(f"{store.inventory[part_id].name} x{qty}")
+        parts_cost += store.inventory[part_id].price * qty
+    return parts_used, parts_cost
+# Nota servis
+def tampilkan_nota_service(record, jasa, parts_cost, total_fee):
+    print("\n\033[30m=== NOTA SERVICE PT.AMOT \033[0m")
+    print(f"Customer      : {record.customer}")
+    print(f"Lokomotif     : {record.lokomotif_id}")
+    print(f"Jenis Service : {record.service_type}")
+    print(f"Tgl Mulai     : {record.start_date}")
+    print(f"Tgl Selesai   : {record.end_date}")
+    print(f"Sparepart     : {', '.join(record.parts_used) if record.parts_used else '-'}")
+    print(f"Biaya Sparepart: {format_rupiah(parts_cost)}")
+    print(f"Biaya Jasa    : {format_rupiah(jasa)}")
+    print(f"Total Biaya   : {format_rupiah(total_fee)}")
+# Nota makann
+def tampilkan_nota_makanan(order, store):
+    print("\n\033[30m=== NOTA PEMBELIAN MAKANAN PT.AMOT \033[0m")
+    print(f"Customer      : {order.customer_name}")
+    print(f"Meja          : {order.table_number}")
+    print(f"Waiter        : {order.waiter}")
+    print(f"Tanggal Pesan : {order.date}")
+
+    # detail pesanan
+    detail = [f"{store.menu[mid].name} x{q}" for mid, q in order.items]
+    print(f"Pesanan       : {'; '.join(detail)}")
+    print(f"Total Biaya   : {format_rupiah(order.total)}")
+# Nota rental
+def tampilkan_nota_rental(record):
+    print("\n\033[30m=== NOTA RENTAL PT.AMOT \033[0m")
+    print(f"Customer      : {record.customer}")
+    print(f"Lokomotif     : {record.lokomotif_id}")
+    print(f"Durasi        : {record.days} hari")
+    print(f"Tgl Mulai     : {record.start_date}")
+    print(f"Tgl Selesai   : {record.end_date}")
+    print(f"Total Biaya   : {format_rupiah(record.total_fee)}")
+    print(f"Officer       : {record.officer}")
 # Tambahan validasi input agar tidak crash
 def safe_input(prompt: str) -> str:
     try:
@@ -346,7 +468,6 @@ def adjust_stock(item_id: str, warehouse_id: str, delta: int, silent=False):
         print(f"\033[32mStok {item.name} di {wh_name} sekarang {new_stock}\033[0m")
 # Mutasi antar gudang
 def transfer_stock(item_id: str, from_wh: str, to_wh: str, qty: int):
-    # Validasi item dan gudang
     if item_id not in store.inventory:
         print("\033[31mItem tidak ditemukan\033[0m")
         return
@@ -360,7 +481,6 @@ def transfer_stock(item_id: str, from_wh: str, to_wh: str, qty: int):
     item = store.inventory[item_id]
     current_stock = item.stock_by_warehouse.get(from_wh, 0)
 
-    # Validasi stok cukup
     if current_stock < qty:
         print(f"\033[31mStok di gudang {store.warehouses[from_wh].name} tidak cukup (tersedia {current_stock})\033[0m")
         return
@@ -368,6 +488,14 @@ def transfer_stock(item_id: str, from_wh: str, to_wh: str, qty: int):
     # Lakukan mutasi stok
     item.stock_by_warehouse[from_wh] = current_stock - qty
     item.stock_by_warehouse[to_wh] = item.stock_by_warehouse.get(to_wh, 0) + qty
+
+    # Catat log mutasi
+    log_warehouse(
+        "Mutasi Stok",
+        item_id,
+        from_wh=from_wh,
+        to_wh=to_wh,
+        qty=qty)
 
     print(f"\033[32mTransfer {qty} unit {item.name} dari {store.warehouses[from_wh].name} ke {store.warehouses[to_wh].name}\033[0m")
 '---------------------------------------------------------------------------------------------------------- part 1 -------------------------------------------'
@@ -378,7 +506,6 @@ class Employee:
     id: str
     name: str
     role: str
-
 @dataclass
 class Lokomotif:
     id: str
@@ -386,21 +513,18 @@ class Lokomotif:
     service_type: str      # contoh: "Perbaikan Mesin", "Overhaul", "Pengecatan"
     rate_per_day: int      # biaya service per hari
     status: str = "Tersedia"   # "Tersedia", "Diservis", "Selesai"
-
 @dataclass
 class MenuItem:
     id: str
     name: str
     price: int
     stock: int
-
-@dataclass  # (UV.1.1)
+@dataclass 
 class Sale:
     items: List[Tuple[str, int]]
     total: int
     date: str
     cashier: str
-
 @dataclass
 class ServiceRecord:
     lokomotif_id: str
@@ -414,7 +538,6 @@ class ServiceRecord:
     end_date: str
     officer: str
     status: str = "Berjalan"     # default saat mulai service
-
 @dataclass
 class FoodOrder:
     items: List[Tuple[str, int]]
@@ -423,31 +546,34 @@ class FoodOrder:
     waiter: str
     customer_name: str
     table_number: str
-
+@dataclass
+class RentalRecord:
+    lokomotif_id: str
+    customer: str
+    days: int
+    total_fee: int
+    start_date: str
+    end_date: str
+    officer: str
+    status: str = "Berjalan" # default saat mulai rental
+@dataclass
 class InventoryItem:
-    def __init__(self, item_id: str, name: str, price: int, category: str = "Umum"):
-        self.item_id = item_id
-        self.name = name
-        self.price = price
-        self.category = category           # contoh: "Suku Cadang", "Peralatan", "Bahan Bakar"
-        self.status = "Pending"            # "Pending", "Siap Jual", "Rusak/Hilang", "Disimpan"
-        
-        # stok aman yang dikonfirmasi oleh admin inventaris
-        self.confirmed_stock = 0           
-        
-        # stok fisik per gudang (diatur lewat modul Gudang)
-        self.stock_by_warehouse: Dict[str, int] = {}
+    item_id: str
+    name: str
+    price: int
+    category: str = "Umum"          # contoh: "Suku Cadang", "Peralatan", "Bahan Bakar"
+    status: str = "Pending"         # "Pending", "Siap Jual", "Rusak/Hilang", "Disimpan"
+    confirmed_stock: int = 0        # stok aman yang dikonfirmasi oleh admin inventaris
+    stock_by_warehouse: Dict[str, int] = field(default_factory=dict)  # stok fisik per gudang
 
     def total_stock(self) -> int:
         # total stok fisik dari semua gudang
         return sum(self.stock_by_warehouse.values())
-
+@dataclass
 class Warehouse:
-    def __init__(self, warehouse_id: str, name: str, address: str):
-        self.warehouse_id = warehouse_id
-        self.name = name
-        self.address = address
-
+    warehouse_id: str
+    name: str
+    address: str
 class Store:
     def __init__(self):
         self.inventory: Dict[str, InventoryItem] = {}
@@ -467,35 +593,36 @@ store = Store()
 '---------------------------------------------------------------------------------------------------------- part 2 -------------------------------------------'
 
 ''' USER MANAGEMENT '''
-# >> Data user uv.3.0
-users = {
-    "admin": {"password": "123", "role": "admin"},
-    "1": {"password": "1", "role": "gudang"},
-    "2": {"password": "2", "role": "service"},
-    "3": {"password": "3", "role": "dapur"},
-    "4": {"password": "4", "role": "kasir"},
-    "5": {"password": "5", "role": "pembeli"}}
-
 current_user = None
 current_role = None
 
-# coba load users dari file
-try:
-    with open("users.json", "r") as f:
-        users = json.load(f)
-except FileNotFoundError:
-    pass
+# Load & Save Users
+def load_users():
+    try:
+        with open("users.json", "r") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
 
-# => Utility
 def save_users():
     with open("users.json", "w") as f:
-        json.dump(users, f)
-# => Registrasi v.3.7
+        json.dump(users, f, indent=2)
+
+# Inisialisasi users
+users = load_users()
+
+# Tambahkan default admin jika belum ada
+if "admin" not in users:
+    # admin default terhubung ke employee Dewi (misalnya EMP0004 dari seed_data)
+    emp_id = "EMP0004"
+    users["admin"] = {"password": "123", "employee_id": emp_id}
+    save_users()
+# Registrasi
 def register():
     head("REGISTRASI")
     print("\033[3m\033[33m*ketik 0 untuk kembali\033[0m\n")
 
-    username = input("Buat username: ").strip()
+    username = input("Buat username: ").strip().lower()
     if username == "0":
         return
     if not username:
@@ -504,8 +631,7 @@ def register():
     if username in users:
         print("\n\033[31mUsername sudah dipakai\033[0m")
         return
-
-    # Looping password 
+    # Password
     while True:
         password = input("Buat password: ").strip()
         if password == "0":
@@ -521,7 +647,7 @@ def register():
             print("\n\033[31mPassword tidak cocok, silakan coba lagi\033[0m")
             continue
         else:
-            break  # cocok, out dr loop
+            break
 
     # Pilih role
     role_ops = {"1": "admin","2": "kasir","3": "service","4": "dapur","5": "pembeli","6": "gudang"}
@@ -539,28 +665,39 @@ def register():
         else:
             print("\n\033[31mPilihan tidak valid. Coba lagi\033[0m")
 
-    # Simpan user
-    users[username] = {"password": password, "role": role}
+    # Buat employee baru
+    emp_id = store.gen_id("EMP")
+    store.employees[emp_id] = Employee(emp_id, username.capitalize(), role)
+
+    # Simpan user dengan employee_id
+    users[username] = {"password": password, "employee_id": emp_id}
     save_users()
+
     print(f"\n\033[32mRegistrasi berhasil sebagai \033[36m{username}\033[0m \033[33m(role: {role})\033[0m")
-# => Login
+
+# Login
 def login():
     global current_user, current_role
     while True:
         head("LOGIN SISTEM")
-        print("\033[3m\033[33m*ketik 0 untuk kembali\033[0m\033[0m\n")
-        u = input("Username: ").strip()
+        print("\033[3m\033[33m*ketik 0 untuk kembali\033[0m\n")
+        u = input("Username: ").strip().lower()
         if u == "0":
-            return  # balik ke start_menu
-        p = input("Password: ").strip()
-        if u in users and users[u]["password"] == p:
-            current_user = u
-            current_role = users[u]["role"]
-            print(f"\n\033[32mLogin berhasil sebagai \033[33m{u} \033[32m(role: \033[33m{current_role}\033[32m)\033[0m")
             return
+        p = input("Password: ").strip()
+
+        if u in users and users[u]["password"] == p:
+            emp_id = users[u]["employee_id"]
+            emp = store.employees.get(emp_id)
+            if emp:
+                current_user = emp.name
+                current_role = emp.role.lower()
+                print(f"\n\033[32mLogin berhasil sebagai \033[33m{current_user}\033[32m (role: {current_role})\033[0m")
+                return
         else:
             print("\n\033[31mLogin gagal. Coba lagi\033[0m")
-# Perbaikan load file agar tidak crash jika JSON rusak
+
+# Loader untuk transaksi
 def safe_load_json_line(line: str):
     try:
         return json.loads(line)
@@ -701,15 +838,25 @@ def edit_inventory(item_id: str, new_name: str = None, new_price: int = None,
     print(f"\033[32mBarang {item_id} berhasil diperbarui\033[0m")
 
 def add_employee(name: str, role: str, silent=False):
+    # Cek duplikasi nama
     for emp in store.employees.values():
         if emp.name.lower() == name.lower():
             if not silent:
                 print("\033[31mKaryawan dengan nama ini sudah ada\033[0m")
             return
+
+    # Generate ID karyawan
     emp_id = store.gen_id("EMP")
     store.employees[emp_id] = Employee(emp_id, name, role)
+
+    # Tambahkan ke users (otomatis buat akun login)
+    username = name.lower().replace(" ", "")   # username default = nama kecil tanpa spasi
+    password = emp_id                          # password default = ID karyawan
+    users[username] = {"password": password, "employee_id": emp_id}
+
     if not silent:
         print(f"\033[32mKaryawan {name} ditambahkan dengan ID {emp_id}\033[0m")
+        print(f"\033[33mAkun login: username='{username}', password='{password}' (role: {role})\033[0m")
 
 def add_lokomotif(name: str, service_type: str, rate_per_day: int, silent=False):
     for lok in store.lokomotif.values():
@@ -769,6 +916,93 @@ def dashboard():  # (UV.1.5)
     print(f"\nInventaris: {len(store.inventory)} | Karyawan: {len(store.employees)} | Lokomotif: {len(store.lokomotif)} | Menu: {len(store.menu)}")
 
     laporan_detail()
+# Admin
+def dashboard_admin():
+    print("\n\033[44m=========== DASHBOARD ===========\033[0m")
+
+    # Kondisi stok barang
+    print("\n\033[34m>> Kondisi Stok Barang\033[0m")
+    low_inv = False
+    for it in store.inventory.values():
+        if it.total_stock() < 5:   # pakai total stok dari semua gudang
+            low_inv = True
+            print(f"- {it.name}: stok tinggal {it.total_stock()} unit")
+    if not low_inv:
+        print("- Semua stok barang aman")
+
+    # Kondisi stok menu makanan
+    print("\n\033[34m>> Kondisi Stok Menu Makanan\033[0m")
+    low_menu = False
+    for m in store.menu.values():
+        if m.stock < 5:
+            low_menu = True
+            print(f"- {m.name}: stok tinggal {m.stock} porsi")
+    if not low_menu:
+        print("- Semua stok menu aman")
+
+    # Ringkasan transaksi
+    total_sales = sum(s.total for s in store.sales)
+    total_service = sum(r.total_fee for r in store.services)
+    total_food = sum(o.total for o in store.food_orders)
+    total_rental = sum(r.total_fee for r in store.rentals)
+
+    print(f"- Penjualan Barang   : {len(store.sales)} transaksi | Total: {format_rupiah(total_sales)}")
+    print(f"- Service Lokomotif  : {len(store.services)} transaksi | Total: {format_rupiah(total_service)}")
+    print(f"- Pemesanan Makanan  : {len(store.food_orders)} pesanan | Total: {format_rupiah(total_food)}")
+    print(f"- Rental Lokomotif   : {len(store.rentals)} transaksi | Total: {format_rupiah(total_rental)}")
+    print(f"- Inventaris         : {len(store.inventory)} barang")
+    print(f"- Karyawan           : {len(store.employees)} orang")
+    print(f"- Lokomotif          : {len(store.lokomotif)} unit")
+    print(f"- Menu Makanan       : {len(store.menu)} item")
+
+    # Laporan detail gabungan
+    print("\n\033[44m=========== LAPORAN DETAIL ===========\033[0m")
+
+    # Barang terlaris
+    counter = {}
+    for s in store.sales:
+        for i, q in s.items:
+            it = store.inventory.get(i)
+            if it:
+                counter[it.name] = counter.get(it.name, 0) + q
+    top_items(counter, "Barang terlaris", "unit")
+
+    # Lokomotif terlaris (service)
+    lokomotif_count = {}
+    for r in store.services:
+        lok = store.lokomotif.get(r.lokomotif_id)
+        if lok:
+            lokomotif_count[lok.name] = lokomotif_count.get(lok.name, 0) + 1
+    top_items(lokomotif_count, "Lokomotif terlaris (service)", "kali diservis")
+
+    # Lokomotif terlaris (rental)
+    rental_count = {}
+    for r in store.rentals:
+        lok = store.lokomotif.get(r.lokomotif_id)
+        if lok:
+            rental_count[lok.name] = rental_count.get(lok.name, 0) + 1
+    top_items(rental_count, "Lokomotif terlaris (rental)", "kali disewa")
+
+    # Sparepart terpakai
+    print("\n\033[34m>> Sparepart Terpakai\033[0m")
+    parts_summary = {}
+    for r in store.services:
+        for part in r.parts_used:
+            parts_summary[part] = parts_summary.get(part, 0) + 1
+    if parts_summary:
+        for part, count in parts_summary.items():
+            print(f"- {part}: {count} kali dipakai")
+    else:
+        print("- Belum ada sparepart terpakai")
+
+    # Menu favorit
+    food_count = {}
+    for o in store.food_orders:
+        for i, q in o.items:
+            m = store.menu.get(i)
+            if m:
+                food_count[m.name] = food_count.get(m.name, 0) + q
+    top_items(food_count, "Menu favorit", "porsi")
 # Kasir
 def dashboard_kasir():
     print("\n\033[44m============== DASHBOARD ==============\033[0m")
@@ -811,6 +1045,29 @@ def dashboard_service():
     for lok in store.lokomotif.values():
         status = "\033[32mTersedia\033[0m" if lok.status == "Tersedia" else ("\033[33mDiservis\033[0m" if lok.status == "Diservis" else "\033[36mSelesai\033[0m")
         print(f"- {lok.name}: {status}")
+# Rental
+def dashboard_rental():
+    print("\n\033[44m=========== DASHBOARD RENTAL ===========\033[0m")
+    if not store.rentals:
+        print("\033[33mBelum ada transaksi rental\033[0m")
+        return
+
+    total_rental = sum(r.total_fee for r in store.rentals)
+    active = sum(1 for r in store.rentals if r.status == "Berjalan")
+    selesai = sum(1 for r in store.rentals if r.status == "Selesai")
+
+    print(f"Jumlah transaksi rental : {len(store.rentals)}")
+    print(f"Rental aktif            : {active}")
+    print(f"Rental selesai          : {selesai}")
+    print(f"Total pendapatan rental : {format_rupiah(total_rental)}")
+
+    # Lokomotif paling sering disewa
+    rental_count = {}
+    for r in store.rentals:
+        lok = store.lokomotif.get(r.lokomotif_id)
+        if lok:
+            rental_count[lok.name] = rental_count.get(lok.name, 0) + 1
+    top_items(rental_count, "Lokomotif terlaris (rental)", "kali disewa")
 # Dapur
 def dashboard_dapur():
     print("\n\033[44m=========== DASHBOARD ===========\033[0m")
@@ -830,82 +1087,6 @@ def dashboard_dapur():
             nm = store.menu[i].name
             food_count[nm] = food_count.get(nm, 0) + q
 
-    top_items(food_count, "Menu favorit", "porsi")
-# Admin
-def dashboard_admin():
-    print("\n\033[44m=========== DASHBOARD ===========\033[0m")
-
-    # Kondisi stok barang
-    print("\n\033[34m>> Kondisi Stok Barang\033[0m")
-    low_inv = False
-    for it in store.inventory.values():
-        if it.stock < 5:
-            low_inv = True
-            print(f"- {it.name}: stok tinggal {it.stock}")
-    if not low_inv:
-        print("- Semua stok barang aman")
-
-    # Kondisi stok menu makanan
-    print("\n\033[34m>> Kondisi Stok Menu Makanan\033[0m")
-    low_menu = False
-    for m in store.menu.values():
-        if m.stock < 5:
-            low_menu = True
-            print(f"- {m.name}: stok tinggal {m.stock}")
-    if not low_menu:
-        print("- Semua stok menu aman")
-
-    # Ringkasan transaksi
-    total_sales = sum(s.total for s in store.sales)
-    total_service = sum(r.total_fee for r in store.services)
-    total_food = sum(o.total for o in store.food_orders)
-    print(f"- Penjualan Barang   : {len(store.sales)} transaksi | Total: {format_rupiah(total_sales)}")
-    print(f"- Service Lokomotif  : {len(store.services)} transaksi | Total: {format_rupiah(total_service)}")
-    print(f"- Pemesanan Makanan  : {len(store.food_orders)} pesanan | Total: {format_rupiah(total_food)}")
-    print(f"- Inventaris         : {len(store.inventory)} barang")
-    print(f"- Karyawan           : {len(store.employees)} orang")
-    print(f"- Lokomotif          : {len(store.lokomotif)} unit")
-    print(f"- Menu Makanan       : {len(store.menu)} item")
-
-    # Laporan detail gabungan
-    print("\n\033[44m=========== LAPORAN DETAIL ===========\033[0m")
-
-    # Barang terlaris
-    counter = {}
-    for s in store.sales:
-        for i, q in s.items:
-            it = store.inventory.get(i)
-            if it:
-                counter[it.name] = counter.get(it.name, 0) + q
-    top_items(counter, "Barang terlaris", "unit")
-
-    # Lokomotif terlaris
-    lokomotif_count = {}
-    for r in store.services:
-        lok = store.lokomotif.get(r.lokomotif_id)
-        if lok:
-            lokomotif_count[lok.name] = lokomotif_count.get(lok.name, 0) + 1
-    top_items(lokomotif_count, "Lokomotif terlaris", "kali diservis")
-
-    # Sparepart terpakai
-    print("\n\033[34m>> Sparepart Terpakai\033[0m")
-    parts_summary = {}
-    for r in store.services:
-        for part in r.parts_used:
-            parts_summary[part] = parts_summary.get(part, 0) + 1
-    if parts_summary:
-        for part, count in parts_summary.items():
-            print(f"- {part}: {count} kali dipakai")
-    else:
-        print("- Belum ada sparepart terpakai")
-
-    # Menu favorit
-    food_count = {}
-    for o in store.food_orders:
-        for i, q in o.items:
-            m = store.menu.get(i)
-            if m:
-                food_count[m.name] = food_count.get(m.name, 0) + q
     top_items(food_count, "Menu favorit", "porsi")
 # Gudang
 def dashboard_gudang():
@@ -950,6 +1131,8 @@ def inventory_menu():
 
             # Tambah barang
             if choice == "1":
+                if not check_access("gudang"):
+                    return
                 name = input("Nama barang: ").strip()
                 jumlah = input_int("Jumlah unit: ", min_val=1)
                 harga_beli = input_int("Harga beli per unit: ", min_val=1)
@@ -963,17 +1146,11 @@ def inventory_menu():
                     category=category_code)
                 store.inventory[item_id].confirmed_stock = jumlah
 
-                record = {
-                    "date": datetime.now().strftime("%Y-%m-%d"),
-                    "user": current_user,
-                    "item_id": item_id,
-                    "name": name,
-                    "jumlah": jumlah,
-                    "harga": harga_beli,
-                    "kategori": category_code,
-                    "status": "Pending"}
-                with open("inventory_log.txt", "a") as f:
-                    f.write(json.dumps(record) + "\n")
+                log_inventory(
+                    "Tambah Barang",
+                    store.inventory[item_id],
+                    {"jumlah": jumlah, "harga": harga_beli, "kategori": category_code, "status": "Pending"})
+                log_employee_action(current_user, current_role, "Tambah Barang", {"item": name, "qty": jumlah})
 
                 print(f"\033[32mBarang {name} ditambahkan ke gudang\033[0m")
             # Ubah/Hapus barang
@@ -999,15 +1176,10 @@ def inventory_menu():
                         price = input_int(f"Harga baru untuk {item.name}: ", min_val=1)
                         old_price = item.price
                         item.price = price
-                        record = {
-                            "date": datetime.now().strftime("%Y-%m-%d"),
-                            "user": current_user,
-                            "item_id": item.item_id,
-                            "name": item.name,
-                            "action": "Perubahan Harga Barang",
-                            "changes": {"price": [old_price, price]}}
-                        with open("inventory_log.txt", "a") as f:
-                            f.write(json.dumps(record) + "\n")
+                        log_inventory(
+                            "Perubahan Harga Barang",
+                            item,
+                            {"changes": {"price": [old_price, price]}})
                         print(f"\033[32mHarga {item.name} diperbarui dari Rp{old_price:,} ke Rp{price:,}\033[0m")
                     # Ubah kondisi
                     elif sub_choice == "2":
@@ -1015,44 +1187,29 @@ def inventory_menu():
                         kondisi_choice = input_menu("Pilih kondisi", kondisi_ops)
                         old_status = item.status
                         item.status = kondisi_ops.get(kondisi_choice, "Pending")
-                        record = {
-                            "date": datetime.now().strftime("%Y-%m-%d"),
-                            "user": current_user,
-                            "item_id": item.item_id,
-                            "name": item.name,
-                            "action": "Perubahan Kondisi Barang",
-                            "changes": {"status": [old_status, item.status]}}
-                        with open("inventory_log.txt", "a") as f:
-                            f.write(json.dumps(record) + "\n")
+                        log_inventory(
+                            "Perubahan Kondisi Barang",
+                            item,
+                            {"changes": {"status": [old_status, item.status]}})
                         print(f"\033[32mBarang {item.name} sekarang berstatus {item.status}\033[0m")
                     # Ubah stok
                     elif sub_choice == "3":
                         stok_baru = input_int(f"Stok baru untuk {item.name}: ", min_val=0)
                         old_stok = item.confirmed_stock
                         item.confirmed_stock = stok_baru
-                        record = {
-                            "date": datetime.now().strftime("%Y-%m-%d"),
-                            "user": current_user,
-                            "item_id": item.item_id,
-                            "name": item.name,
-                            "action": "Perubahan Stok Barang",
-                            "changes": {"stok": [old_stok, stok_baru]}}
-                        with open("inventory_log.txt", "a") as f:
-                            f.write(json.dumps(record) + "\n")
+                        log_inventory(
+                            "Perubahan Stok Barang",
+                            item,
+                            {"changes": {"stok": [old_stok, stok_baru]}}
+                        )
                         print(f"\033[32mStok {item.name} diperbarui dari {old_stok} ke {stok_baru}\033[0m")
                     # Hapus barang
                     elif sub_choice == "4":
-                        record = {
-                            "date": datetime.now().strftime("%Y-%m-%d"),
-                            "user": current_user,
-                            "item_id": item.item_id,
-                            "name": item.name,
-                            "price": item.price,
-                            "action": "Penghapusan Barang",
-                            "reason": "Hapus Barang"}
-                        with open("inventory_deletions.txt", "a") as f:
-                            f.write(json.dumps(record) + "\n")
-                        del store.inventory[item.item_id]
+                        log_inventory(
+                            "Penghapusan Barang",
+                            item,
+                            {"price": item.price, "reason": "Hapus Barang"},
+                            filename="inventory_deletions.txt")
                         print(f"\033[32mBarang {item.name} dihapus dari gudang\033[0m")
             # riwayat barang masuk/keluar
             elif choice == "3":
@@ -1114,9 +1271,21 @@ def warehouse_menu():
         elif choice == "2":
             name = input("Nama gudang: ").strip()
             address = input("Alamat gudang: ").strip()
+
             add_warehouse(name, address)
+
+            # Catat log penambahan gudang
+            log_warehouse(
+                "Tambah Gudang",
+                item_id="N/A",   # karena ini gudang baru, bukan barang
+                extra={"name": name, "address": address})
+
+            print(f"\033[32mGudang {name} berhasil ditambahkan\033[0m")
         # Mutasi stok
         elif choice == "3":
+            if not check_access("gudang"):
+                return
+
             print_inventory()
             item_query = input("\nID/Nama barang: ").strip()
             item = find_item(item_query)
@@ -1128,7 +1297,27 @@ def warehouse_menu():
             to_wh = input("Gudang tujuan (ID): ").strip().upper()
             qty = input_int("Jumlah transfer: ", min_val=1)
 
-            transfer_stock(item.item_id, from_wh, to_wh, qty)
+            if store.warehouses[from_wh].stock.get(item.item_id, 0) < qty:
+                print("\033[31mStok di gudang asal tidak cukup\033[0m")
+            else:
+                transfer_stock(item.item_id, from_wh, to_wh, qty)
+
+                # Catat log gudang
+                log_warehouse(
+                    "Mutasi Stok",
+                    item.item_id,
+                    from_wh=from_wh,
+                    to_wh=to_wh,
+                    qty=qty)
+
+                # Catat aktivitas karyawan
+                log_employee_action(
+                    current_user,
+                    current_role,
+                    "Mutasi Stok",
+                    {"item": item.name, "from": from_wh, "to": to_wh, "qty": qty})
+
+                print(f"\033[32m{qty} unit {item.name} dipindahkan dari {from_wh} ke {to_wh}\033[0m")
         # Konfir kondisi
         elif choice == "4":
             print_inventory()
@@ -1140,7 +1329,14 @@ def warehouse_menu():
 
             status_ops = {"1": "Siap Jual", "2": "Disimpan", "3": "Rusak", "4": "Hilang", "5": "Kadaluarsa", "6": "Pending"}
             status_choice = input_menu("Konfirmasi kondisi", status_ops)
+            old_status = item.status
             item.status = status_ops.get(status_choice, "Disimpan")
+
+            # Catat log perubahan status
+            log_warehouse(
+                "Konfirmasi Status Barang",
+                item.item_id,
+                extra={"old_status": old_status, "new_status": item.status})
 
             # UI warna kondisi
             if item.status in ["Rusak", "Hilang"]:
@@ -1205,22 +1401,25 @@ def employee_menu():
 
 # Penjualan (PERLU TAMBHAN)
 def sales_menu():
+    if not check_access("kasir"):
+        return
+
     while True:
         h = head("KELOLA PENJUALAN")
         ops = {
             "1": "Lihat Stok",
-            "2": "Transaksi Penjual",
+            "2": "Transaksi Penjualan",
             "3": "Riwayat Penjualan",
             "0": "Kembali"}
         p = input_menu("Data Penjualan", ops)
-        # Stok 
+        # Stok
         if p == "1":
             print("\n\033[34m>> Barang Siap Jual:\033[0m")
             for item in store.inventory.values():
                 if item.status == "Siap Jual" and item.confirmed_stock > 0:
                     print(f"- {item.item_id}: {item.name} | Harga: {format_rupiah(item.price)} | Stok aman: {item.confirmed_stock}")
             pause()
-        # Transakisi penjualan
+        # Transaksi penjualan
         elif p == "2":
             cart = []
             while True:
@@ -1251,16 +1450,14 @@ def sales_menu():
 
             sale = Sale(cart, total, datetime.now().strftime("%Y-%m-%d (%H:%M)"), current_user)
             store.sales.append(sale)
-
-            # Simpan ke file
-            with open("sales.txt", "a") as f:
-                record = {
-                    "date": sale.date,
-                    "cashier": sale.cashier,
-                    "items": sale.items,
-                    "total": sale.total
-                }
-                f.write(json.dumps(record) + "\n")
+            # Catat ke file log penjualan
+            log_sale("barang", "MULTI", total, {"items": cart})
+            # Catat aktivitas karyawan
+            log_employee_action(
+                current_user,
+                current_role,
+                "Transaksi Penjualan",
+                {"items": cart, "total": total})
 
             print(f"\n\033[32mTransaksi berhasil. Total: {format_rupiah(total)}\033[0m")
         # Riwayat
@@ -1293,6 +1490,9 @@ def service_menu():
             pause()
         # Mulai service
         elif p == "2":
+            if not check_access("service"):
+                return
+
             print_lokomotif()
             lok_id = input("ID lokomotif: ").strip().upper()
             lok = store.lokomotif.get(lok_id)
@@ -1304,23 +1504,7 @@ def service_menu():
             days = input_int("Durasi (hari): ", min_val=1)
 
             # pilih sparepart dari inventory
-            parts_used = []
-            parts_cost = 0
-            while True:
-                print_inventory()
-                part_id = input("ID sparepart (Enter untuk selesai): ").strip().upper()
-                if part_id == "":
-                    break
-                if part_id not in store.inventory:
-                    print("\033[31mID tidak ditemukan\033[0m")
-                    continue
-                qty = input_int("Jumlah: ", min_val=1)
-                if qty > store.inventory[part_id].stock:
-                    print("\033[31mStok tidak cukup\033[0m")
-                    continue
-                store.inventory[part_id].stock -= qty
-                parts_used.append(f"{store.inventory[part_id].name} x{qty}")
-                parts_cost += store.inventory[part_id].price * qty
+            parts_used, parts_cost = pilih_sparepart()
 
             jasa = lok.rate_per_day * days
             total_fee = jasa + parts_cost
@@ -1342,33 +1526,58 @@ def service_menu():
                 officer=current_user)
             store.services.append(record)
 
-            with open("services.txt", "a") as f:
-                f.write(json.dumps(record.__dict__) + "\n")
+            # catat ke file log
+            log_service("Mulai Service", record)
 
-            print("\n\033[30m=== NOTA SERVICE PT.AMOT \033[0m")
-            print(f"Customer      : {customer}")
-            print(f"Lokomotif     : {lok.name} (ID: {lok_id})")
-            print(f"Jenis Service : {lok.service_type}")
-            print(f"Tgl Mulai     : {record.start_date}")
-            print(f"Tgl Selesai   : {record.end_date}")
-            print(f"Sparepart     : {', '.join(parts_used) if parts_used else '-'}")
-            print(f"Biaya Sparepart: {format_rupiah(parts_cost)}")
-            print(f"Biaya Jasa    : {format_rupiah(jasa)}")
-            print(f"Total Biaya   : {format_rupiah(total_fee)}")
+            # integrasi ke penjualan
+            sale_id = store.gen_id("SALE")
+            store.sales[sale_id] = {
+                "type": "service",
+                "ref": record.lokomotif_id,
+                "amount": total_fee,
+                "date": datetime.now().strftime("%Y-%m-%d")}
+
+            # catat aktivitas karyawan
+            log_employee_action(
+                current_user,
+                current_role,
+                "Mulai Service",
+                {"lok_id": lok_id, "customer": customer, "days": days, "total_fee": total_fee})
+
+            # tampilkan nota
+            tampilkan_nota_service(record, jasa, parts_cost, total_fee)
         # Selesaikan service
         elif p == "3":
+            if not check_access("service"):
+                return
+
             if not store.services:
                 print("\n\033[33mBelum ada transaksi service\033[0m")
-                continue
+                return
+
             print("\n>> Transaksi Service:")
             for idx, r in enumerate(store.services, 1):
                 lok = store.lokomotif.get(r.lokomotif_id)
                 status = "\033[33mDiservis\033[0m" if lok and lok.status == "Diservis" else "\033[32mTersedia/Selesai\033[0m"
                 print(f"{idx}. {r.customer} | {lok.name if lok else r.lokomotif_id} | {r.days} hari | {format_rupiah(r.total_fee)} | Status: {status}")
+
             idx = input_int("Pilih nomor transaksi yang selesai: ", min_val=1, max_val=len(store.services))
             r = store.services[idx - 1]
+
+            # Update status lokomotif
             if r.lokomotif_id in store.lokomotif:
                 store.lokomotif[r.lokomotif_id].status = "Selesai"
+
+            # Logging service selesai
+            log_service("Selesaikan Service", r)
+
+            # Logging aktivitas karyawan
+            log_employee_action(
+                current_user,
+                current_role,
+                "Selesaikan Service",
+                {"lok_id": r.lokomotif_id, "customer": r.customer, "total_fee": r.total_fee})
+
             print("\n\033[32mService ditandai selesai. Status lokomotif diperbarui ke\033[0m \033[32m'Selesai'\033[0m")
         # Riwayat
         elif p == "4":
@@ -1424,6 +1633,107 @@ def service_menu():
         elif p == "0":
             return
 
+# Rental
+def rental_menu():
+    if not check_access("rental"):
+        return
+
+    while True:
+        h = head("KELOLA RENTAL LOKOMOTIF/ALAT")
+        ops = {
+            "1": "Lihat Lokomotif/Alat",
+            "2": "Mulai Rental",
+            "3": "Selesaikan Rental",
+            "4": "Riwayat Rental",
+            "0": "Kembali"}
+        p = input_menu("Data Rental", ops)
+        # Lihat daftar
+        if p == "1":
+            print("\n\033[34m>> Daftar Lokomotif/Alat:\033[0m")
+            for lok in store.lokomotif.values():
+                print(f"- {lok.lok_id}: {lok.name} | Status: {lok.status} | Tarif: {format_rupiah(lok.rate_per_day)}")
+            pause()
+        # Mulai rental
+        elif p == "2":
+            lok_id = input("ID Lokomotif/Alat: ").strip().upper()
+            lok = store.lokomotif.get(lok_id)
+            if not lok or lok.status != "Tersedia":
+                print("\033[31mTidak tersedia untuk rental\033[0m")
+                continue
+
+            customer = input("Nama customer: ").strip()
+            days = input_int("Durasi (hari): ", min_val=1)
+
+            total_fee = lok.rate_per_day * days
+            start_date = datetime.now()
+            end_date = start_date + timedelta(days=days)
+            lok.status = "Disewa"
+
+            record = RentalRecord(
+                lokomotif_id=lok_id,
+                customer=customer,
+                days=days,
+                total_fee=total_fee,
+                start_date=start_date.strftime("%Y-%m-%d (%H:%M)"),
+                end_date=end_date.strftime("%Y-%m-%d (%H:%M)"),
+                officer=current_user)
+            store.rentals.append(record)
+
+            # Catat ke file
+            with open("rentals.txt", "a") as f:
+                f.write(json.dumps(record.__dict__) + "\n")
+
+            # Integrasi ke penjualan
+            sale_id = store.gen_id("SALE")
+            store.sales[sale_id] = {
+                "type": "rental",
+                "ref": lok_id,
+                "amount": total_fee,
+                "date": record.start_date}
+            log_sale("rental", lok_id, total_fee, {"customer": customer, "days": days})
+
+            # Logging aktivitas karyawan
+            log_employee_action(
+                current_user,
+                current_role,
+                "Mulai Rental",
+                {"lok_id": lok_id, "customer": customer, "days": days, "total_fee": total_fee})
+
+            # Cetak nota rental
+            tampilkan_nota_rental(record)
+        # Selesaikan rental
+        elif p == "3":
+            if not store.rentals:
+                print("\n\033[33mBelum ada transaksi rental\033[0m")
+                continue
+            print("\n>> Transaksi Rental:")
+            for idx, r in enumerate(store.rentals, 1):
+                lok = store.lokomotif.get(r.lokomotif_id)
+                status = "\033[33mDisewa\033[0m" if lok and lok.status == "Disewa" else "\033[32mSelesai\033[0m"
+                print(f"{idx}. {r.customer} | {lok.name if lok else r.lokomotif_id} | {r.days} hari | {format_rupiah(r.total_fee)} | Status: {status}")
+
+            idx = input_int("Pilih nomor transaksi yang selesai: ", min_val=1, max_val=len(store.rentals))
+            r = store.rentals[idx - 1]
+            if r.lokomotif_id in store.lokomotif:
+                store.lokomotif[r.lokomotif_id].status = "Selesai"
+
+            log_sale("rental selesai", r.lokomotif_id, r.total_fee, {"customer": r.customer})
+            log_employee_action(current_user, current_role, "Selesaikan Rental", {"lok_id": r.lokomotif_id, "customer": r.customer})
+
+            print("\n\033[32mRental ditandai selesai. Status lokomotif diperbarui ke 'Selesai'\033[0m")
+        # Riwayat rental
+        elif p == "4":
+            if not store.rentals:
+                print("\n\033[33mBelum ada rental\033[0m")
+            else:
+                print("\n>> Riwayat Rental:")
+                for idx, r in enumerate(store.rentals, 1):
+                    lok = store.lokomotif.get(r.lokomotif_id)
+                    print(f"{idx}. Customer: {r.customer} | Lokomotif: {lok.name if lok else r.lokomotif_id} | Durasi: {r.days} hari | Total: {format_rupiah(r.total_fee)}")
+            pause()
+        elif p == "0":
+            return
+
 # Pesan Makan (PERLU TAMBHAN)
 def food_menu():
     while True:
@@ -1443,6 +1753,9 @@ def food_menu():
             pause()
         # Buat pesanan
         elif p == "2":
+            if not check_access("pembeli") and not check_access("dapur"):
+                return
+
             customer_name = input("Nama customer: ").strip()
             table_number = input("Nomor meja: ").strip()
 
@@ -1460,7 +1773,6 @@ def food_menu():
                 if qty > store.menu[menu_id].stock:
                     print("\n\033[33mStok menu tidak cukup\033[0m")
                     continue
-                # langsung kurangi stok
                 store.menu[menu_id].stock -= qty
                 cart.append((menu_id, qty))
 
@@ -1470,7 +1782,6 @@ def food_menu():
 
             total = sum(store.menu[mid].price * q for mid, q in cart)
 
-            # Buat objek FoodOrder dengan field tambahan
             order = FoodOrder(
                 items=cart,
                 total=total,
@@ -1481,19 +1792,29 @@ def food_menu():
             )
             store.food_orders.append(order)
 
-            # Simpan ke file dalam format JSON
+            # Catat ke file food_orders
             with open("food_orders.txt", "a") as f:
                 f.write(json.dumps(order.__dict__) + "\n")
 
+            # Integrasi ke penjualan
+            sale_id = store.gen_id("SALE")
+            store.sales[sale_id] = {
+                "type": "food",
+                "ref": order.customer_name,
+                "amount": total,
+                "date": order.date
+            }
+            log_sale("food", order.customer_name, total, {"items": cart, "table": table_number})
+
+            # Logging aktivitas karyawan
+            log_employee_action(
+                current_user,
+                current_role,
+                "Buat Pesanan Food",
+                {"customer": customer_name, "table": table_number, "items": cart, "total": total})
+
             # Cetak nota
-            print("\n\033[30m=== NOTA PEMBELIAN MAKANAN PT.AMOT \033[0m")
-            print(f"Customer      : {order.customer_name}")
-            print(f"Meja          : {order.table_number}")
-            print(f"Waiter        : {order.waiter}")
-            print(f"Tanggal Pesan : {order.date}")
-            detail = [f"{store.menu[mid].name} x{q}" for mid, q in order.items]
-            print(f"Pesanan       : {'; '.join(detail)}")
-            print(f"Total Biaya   : {format_rupiah(order.total)}")
+            tampilkan_nota_makanan(order, store)
         # Riwayat
         elif p == "3":
             if not store.food_orders:
@@ -1639,6 +1960,23 @@ def main_menu():
                 print("\n\033[32mBerhasil keluar\033[0m")
                 return
             elif choice == "0": sys.exit(0)
+
+        elif current_role == "rental":
+            ops = {
+                "1": "Kelola Rental Lokomotif/Alat",
+                "2": "Dasbor Rental",
+                "9": "Keluar"}
+            choice = input_menu("MENU UTAMA (Rental)", ops)
+            if choice == "1":
+                rental_menu()     
+            elif choice == "2":
+                dashboard_rental()
+            elif choice == "9":
+                current_user, current_role = None, None
+                print("\n\033[32mBerhasil keluar\033[0m")
+                return
+            elif choice == "0":
+                sys.exit(0)
 
         elif current_role == "dapur":
             ops = {
