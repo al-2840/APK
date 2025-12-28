@@ -856,9 +856,9 @@ def register():
 
 # Akun
 def change_role():
-    username = input("Masukkan username akun: ").strip().lower()
+    username = input("\nUsername akun: ").strip().lower()
     if username not in users:
-        print("\033[31mAkun tidak ditemukan\033[0m")
+        print("\n\033[31mAkun tidak ditemukan\033[0m")
         return
 
     old_role = users[username].get("role")
@@ -871,7 +871,7 @@ def change_role():
             old_role = "N/A"
 
     print(f"Role lama akun '{username}': {old_role}")
-    new_role = input("Masukkan role baru: ").strip()
+    new_role = input("\nMasukkan role baru: ").strip()
     if new_role:
         users[username]["role"] = new_role
         # sinkron ke Employee juga
@@ -879,43 +879,43 @@ def change_role():
         if emp_id in store.employees:
             store.employees[emp_id].role = new_role
         save_users()
-        print(f"\033[32mRole akun '{username}' berhasil diubah menjadi {new_role}\033[0m")
+        print(f"\n\033[32mRole akun '{username}' berhasil diubah menjadi {new_role}\033[0m")
 
 def reset_password():
     global users, current_user, current_role
     print("\n\033[44m=========== RESET PASSWORD ===========\033[0m")
 
     if not current_user:
-        print("\033[31mAnda harus login terlebih dahulu\033[0m")
+        print("\n\033[31mAnda harus login terlebih dahulu\033[0m")
         return
 
     # Admin tidak boleh reset password orang lain
     if current_role == "admin":
-        print("\033[31mAdmin tidak bisa mereset password karyawan lain\033[0m")
+        print("\n\033[31mAdmin tidak bisa mereset password karyawan lain\033[0m")
         return
     # Ambil akun yang sedang login
     username = current_user
-    old_pass = input("Masukkan password lama: ").strip()
+    old_pass = input("\nPassword lama: ").strip()
     if old_pass != users[username]["password"]:
-        print("\033[31mPassword lama salah\033[0m")
+        print("\n\033[31mPassword lama salah\033[0m")
         return
     # Input password baru
     while True:
         new_pass = input("Password baru: ").strip()
         if not new_pass:
-            print("\033[31mPassword tidak boleh kosong\033[0m")
+            print("\n\033[31mPassword tidak boleh kosong\033[0m")
             continue
 
         confirm_pass = input("Konfirmasi password baru: ").strip()
         if confirm_pass != new_pass:
-            print("\033[31mPassword tidak cocok, coba lagi\033[0m")
+            print("\n\033[31mPassword tidak cocok, coba lagi\033[0m")
             continue
         else:
             break
     # Simpan perubahan
     users[username]["password"] = new_pass
     save_users()
-    print(f"\033[32mPassword akun '{username}' berhasil diubah\033[0m")
+    print(f"\n\033[32mPassword akun '{username}' berhasil diubah\033[0m")
 
 def forgot_password():
     global users, current_role
@@ -926,7 +926,7 @@ def forgot_password():
         print("\n\033[31mHanya admin yang bisa melakukan reset darurat\033[0m")
         return
 
-    username = input("Masukkan username yang lupa password: ").strip().lower()
+    username = input("\nUsername lupa password: ").strip().lower()
     if not username:
         print("\n\033[31mUsername tidak boleh kosong\033[0m")
         return
@@ -949,25 +949,38 @@ def list_accounts():
     if not users:
         print("\n\033[33mBelum ada akun terdaftar\033[0m")
         return
+
     # Header tabel
-    print(f"\n{'Username':<12} | {'Role':<10} | {'ID (EMP)':<8} | {'Nama Karyawan':<15} | {'Status':<10} | {'Last Login':<20}")
-    print("-"*95)
-    # Loop semua akun
+    print(f"\n{'Username':<12} | {'Role':<10} | {'ID (EMP)':<8} | {'Nama Karyawan':<15} | {'Status':<11} | {'Last Login':<20}")
+    print("-"*90)
+
     for uname, data in users.items():
         emp_id = data.get("employee_id", "N/A")
         emp_name = "Unknown"
-        role = data.get("role", "N/A")   # role akun, bkn hnya role karyawan
-        status = data.get("status", "Aktif")  # default aktif
-        last_login = data.get("last_login", "-")
-        # Ambil nama karyawan dari store
+        role = data.get("role")
+
         if emp_id in store.employees:
             emp_name = store.employees[emp_id].name
+            # fallback kalau role kosong/N/A
+            if not role or role == "N/A":
+                role = store.employees[emp_id].role
+        else:
+            role = role if role else "N/A"
 
-        print(f"{uname:<12} | {role:<10} | {emp_id:<8} | {emp_name:<15} | {status:<10} | {last_login:<20}")
+        status = data.get("status", "Aktif")
+        last_login = data.get("last_login", "-")
+
+        if status == "Aktif":
+            status_display = "\033[32mAktif\033[0m" 
+        else:
+            status_display = "\033[33mNonaktif\033[0m"   
+        print(f"{uname:<12} | {role:<10} | {emp_id:<8} | {emp_name:<15} | {status_display:<20} | {last_login:<20}")
 
 def lihat_profil(emp_id, current_user, current_role):
     print("\n\033[44m=========== PROFIL KARYAWAN ===========\033[0m")
     user_data = users.get(current_user)
+
+    # Karyawan biasa hanya bisa lihat profil sendiri
     if current_role != "admin":
         if not user_data or user_data.get("employee_id") != emp_id:
             print("\n\033[31mAnda hanya bisa melihat profil sendiri\033[0m")
@@ -979,17 +992,24 @@ def lihat_profil(emp_id, current_user, current_role):
 
     emp = store.employees[emp_id]
 
+    # Data karyawan
     print(f"ID Karyawan   : {emp.id}")
     print(f"Nama          : {emp.name}")
     print(f"Role          : {emp.role}")
     print(f"Alamat        : {getattr(emp, 'address', '-')}")
     print(f"Nomor HP      : {getattr(emp, 'phone', '-')}")
     print(f"Status        : {getattr(emp, 'status', 'N/A')}")
+
     # Hubungan dengan akun login
     for uname, data in users.items():
         if data.get("employee_id") == emp_id:
+            # fallback role akun
+            role_akun = data.get("role")
+            if not role_akun or role_akun == "N/A":
+                role_akun = emp.role
+
             print(f"Akun Login    : {uname}")
-            print(f"Role Akun     : {data.get('role','N/A')}")
+            print(f"Role Akun     : {role_akun}")
             print(f"Status Akun   : {data.get('status','Aktif')}")
             print(f"Last Login    : {data.get('last_login','-')}")
             break
@@ -1005,7 +1025,7 @@ def edit_profil(emp_id, current_user, current_role):
     print("\033[3m*Kosongkan input jika tidak ingin mengubah field\033[0m\n")
 
     # Semua bisa ubah nama, alamat, kontak
-    new_name = input(f"Nama ({emp.name}): ").strip()
+    new_name = input(f"\nNama ({emp.name}): ").strip()
     if new_name:
         emp.name = new_name
 
@@ -1020,28 +1040,33 @@ def edit_profil(emp_id, current_user, current_role):
             emp.phone = new_phone
 
     # Hanya admin boleh ubah status & role
-        if current_role == "admin":
-            new_status = input(f"Status ({emp.status}): ").strip()
-            if new_status:
-                emp.status = new_status
-                # sinkron ke akun login
-                for uname, data in users.items():
-                    if data.get("employee_id") == emp_id:
-                        data["status"] = new_status
+    if current_role == "admin":
+        new_status = input(f"Status ({getattr(emp, 'status', 'Aktif')}): ").strip()
+        if new_status:
+            emp.status = new_status
+            # sinkron ke akun login
+            for uname, data in users.items():
+                if data.get("employee_id") == emp_id:
+                    data["status"] = new_status
 
-            new_role = input(f"Role ({emp.role}): ").strip()
-            if new_role:
-                emp.role = new_role
-                for uname, data in users.items():
-                    if data.get("employee_id") == emp_id:
+        new_role = input(f"Role ({emp.role}): ").strip()
+        if new_role:
+            emp.role = new_role
+            for uname, data in users.items():
+                if data.get("employee_id") == emp_id:
+                    # fallback: kalau role kosong/N/A, isi baru
+                    if not data.get("role") or data.get("role") == "N/A":
+                        data["role"] = new_role
+                    else:
                         data["role"] = new_role
     else:
         print("\n\033[33mAnda tidak memiliki izin untuk mengubah status atau role\033[0m")
 
+    save_users()
     print("\n\033[32mProfil berhasil diperbarui\033[0m")
 
 def set_account_status():
-    uname = input("Masukkan username akun: ").strip().lower()
+    uname = input("\nUsername akun: ").strip().lower()
     if uname not in users:
         print(f"\n\033[31mAkun {uname} tidak ditemukan\033[0m")
         return
@@ -1052,15 +1077,15 @@ def set_account_status():
     current_status = users[uname].get("status", "Aktif")
     print(f"\nStatus akun '{uname}' ({emp_name}) saat ini: {current_status}")
 
-    if current_status == "\033[32mAktif\033[0m":
-        yakin = input("Nonaktifkan akun ini? (y/n): ").strip().lower()
+    if current_status == "Aktif":
+        yakin = input("\nNonaktifkan akun ini? (y/n): ").strip().lower()
         if yakin == "y":
-            users[uname]["status"] = "\033[33mNonaktif\033[0m"
+            users[uname]["status"] = "Nonaktif"
             print(f"\n\033[33mAkun '{uname}' ({emp_name}) berhasil dinonaktifkan\033[0m")
     else:
-        yakin = input("Aktifkan kembali akun ini? (y/n): ").strip().lower()
+        yakin = input("\nAktifkan kembali akun ini? (y/n): ").strip().lower()
         if yakin == "y":
-            users[uname]["status"] = "\033[32mAktif\033[0m"
+            users[uname]["status"] = "Aktif"
             print(f"\n\033[32mAkun '{uname}' ({emp_name}) berhasil diaktifkan kembali\033[0m")
     save_users()
 
@@ -1074,21 +1099,34 @@ def search_account(keyword: str):
     found = False
 
     # Header tabel
-    print(f"\n{'Username':<12} | {'Role':<10} | {'ID (EMP)':<8} | {'Nama Karyawan':<10} | {'Status':<10} | {'Last Login':<20}")
+    print(f"\n{'Username':<12} | {'Role':<10} | {'ID (EMP)':<8} | {'Nama Karyawan':<15} | {'Status':<11} | {'Last Login':<20}")
     print("-"*95)
-    # Loop semua akun
+
     for uname, data in users.items():
         emp_id = data.get("employee_id", "N/A")
         emp_name = "Unknown"
-        role = data.get("role", "N/A")
-        status = data.get("status", "Aktif")
-        last_login = data.get("last_login", "-")
+        role = data.get("role")
 
         if emp_id in store.employees:
             emp_name = store.employees[emp_id].name
+            # fallback kalau role kosong/N/A
+            if not role or role == "N/A":
+                role = store.employees[emp_id].role
+        else:
+            role = role if role else "N/A"
+
+        status = data.get("status", "Aktif")
+        last_login = data.get("last_login", "-")
+
+        # Warna status hanya saat ditampilkan
+        if status == "Aktif":
+            status_display = "\033[32mAktif\033[0m"
+        else:
+            status_display = "\033[33mNonaktif\033[0m"
+
         # Cocokkan dengan username, nama karyawan, atau Emp.ID
         if keyword in uname.lower() or keyword in emp_name.lower() or keyword in emp_id.lower():
-            print(f"{uname:<12} | {role:<10} | {emp_id:<8} | {emp_name:<10} | {status:<10} | {last_login:<20}")
+            print(f"{uname:<12} | {role:<10} | {emp_id:<8} | {emp_name:<15} | {status_display:<20} | {last_login:<20}")
             found = True
 
     if not found:
@@ -1436,7 +1474,10 @@ def add_account():
     users[username] = {
         "password": password,
         "employee_id": emp_id,
-        "role": role}
+        "role": role,          # ✅ langsung isi role
+        "status": "Aktif",
+        "last_login": "-"
+    }
     save_users()
 
     print(f"\n\033[32mAkun '{username}' berhasil ditambahkan untuk karyawan {store.employees[emp_id].name} (role: {role})\033[0m")
@@ -2086,7 +2127,7 @@ def employee_menu():
         elif choice == "0":
             return
         
-# Akun (PERLU TAMBAHAN)
+# Akun (clear v.4.1.5)
 def account_menu():
     while True:
         h = head("MANAJEMEN AKUN")
@@ -2096,14 +2137,14 @@ def account_menu():
             ops = {
                 "1": "Daftar Akun",
                 "2": "Tambah Akun",
-                "3": "Ubah Role",
-                "4": "Hapus Akun",
-                "5": "Lihat Profil",
-                "6": "Reset Password",
-                "7": "Lupa Password",
+                "3": "Ubah   Role",
+                "4": "Hapus  Akun",
+                "5": "Lihat  Profil",
+                "6": "Reset  Password",
+                "7": "Lupa   Password",
                 "8": "Status Akun",
-                "9": "Cari Akun",
-                "10": "Edit Akun",
+                "9": "Cari   Akun",
+                "10": "Edit  Akun",
                 "0": "Kembali"}
         else:
             # khusus karyawan biasa
