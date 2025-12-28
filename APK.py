@@ -34,18 +34,18 @@ def seed_data():
         item = add_inventory(name, harga, kategori, stok_awal=stok, silent=True)
 
     # Karyawan + otomatis akun login
-    for name, role in [
-        ("Andi", "Kasir"),
-        ("Budi", "Service"),
-        ("Citra", "Dapur"),
-        ("Putri", "Admin"),
-        ("Eko", "Gudang"),
-        ("Fajar", "Kasir"),
-        ("Gina", "Service"),
-        ("Hadi", "Dapur"),
-        ("Indra", "Admin"),
-        ("Joko", "Gudang"),]:
-        emp_id = add_employee(name, role, silent=True)
+    for name, role, address, phone in [
+        ("Andi", "Kasir", "Jl. Merdeka No.1", "08123456789"),
+        ("Budi", "Service", "Jl. Ahmad Yani No.5", "08234567890"),
+        ("Citra", "Dapur", "Jl. Pangeran Antasari No.7", "08345678901"),
+        ("Putri", "Admin", "Jl. Cempaka No.10", "08456789012"),
+        ("Eko", "Gudang", "Jl. Veteran No.12", "08567890123"),
+        ("Fajar", "Kasir", "Jl. Gatot Subroto No.15", "08678901234"),
+        ("Gina", "Service", "Jl. Banjarbaru Raya No.20", "08789012345"),
+        ("Hadi", "Dapur", "Jl. Panglima Batur No.25", "08890123456"),
+        ("Indra", "Admin", "Jl. Hasan Basri No.30", "08901234567"),
+        ("Joko", "Gudang", "Jl. Trikora No.35", "08123456780"),]:
+        emp_id = add_employee(name, role, address, phone, silent=True)
         username = name.lower()
         users[username] = {"password": emp_id, "employee_id": emp_id}
     save_users()
@@ -513,12 +513,12 @@ def print_employees():
     if not store.employees:
         print("\n\033[31m- KOSONG -\033[0m")
         return
-    print(f"\n{'Emp.ID':<8} | {'Nama':<20} | {'Jabatan':<10} | {'Alamat':<25} | {'Telepon':<15}")
+    print(f"\n{'ID (EMP)':<8} | {'Nama':<10} | {'Jabatan':<10} | {'Alamat':<30} | {'Telepon':<15}")
     print("-"*85)
 
     # Isi tabel
     for emp in store.employees.values():
-        print(f"{emp.id:<8} | {emp.name:<20} | {emp.role:<10} | {emp.address:<25} | {emp.phone:<15}")
+        print(f"{emp.id:<8} | {emp.name:<10} | {emp.role:<10} | {emp.address:<30} | {emp.phone:<15}")
 
 EMPLOYEE_FILE = "employees.json" # lokasi
 
@@ -848,26 +848,38 @@ def register():
     emp_id = store.gen_id("EMP")
     store.employees[emp_id] = Employee(emp_id, username.capitalize(), role)
 
-    # Simpan user dengan employee_id + role
-    users[username] = {
-        "password": password,
-        "employee_id": emp_id,
-        "role": role}
+    # Simpan user employee_id + role
+    users[username] = {"password": password, "employee_id": emp_id, "role": role}
     save_users()
 
     print(f"\n\033[32mRegistrasi berhasil sebagai \033[36m{username}\033[0m \033[33m(role: {role})\033[0m")
 
+# Akun
 def change_role():
-    username = input("Username yang diubah rolenya: ").strip()
+    username = input("Masukkan username akun: ").strip().lower()
     if username not in users:
-        print("\033[31mUsername tidak ditemukan\033[0m")
+        print("\033[31mAkun tidak ditemukan\033[0m")
         return
 
-    new_role = input("Role baru: ").strip()
-    old_role = users[username]["role"]
-    users[username]["role"] = new_role
-    save_users()
-    print(f"\033[32mRole akun {username} diubah dari {old_role} menjadi {new_role}\033[0m")
+    old_role = users[username].get("role")
+    if not old_role:
+        # fallback: ambil dari Employee
+        emp_id = users[username].get("employee_id")
+        if emp_id in store.employees:
+            old_role = store.employees[emp_id].role
+        else:
+            old_role = "N/A"
+
+    print(f"Role lama akun '{username}': {old_role}")
+    new_role = input("Masukkan role baru: ").strip()
+    if new_role:
+        users[username]["role"] = new_role
+        # sinkron ke Employee juga
+        emp_id = users[username].get("employee_id")
+        if emp_id in store.employees:
+            store.employees[emp_id].role = new_role
+        save_users()
+        print(f"\033[32mRole akun '{username}' berhasil diubah menjadi {new_role}\033[0m")
 
 def reset_password():
     global users, current_user, current_role
@@ -934,57 +946,57 @@ def forgot_password():
 
 def list_accounts():
     print("\n\033[44m=========== DAFTAR AKUN ===========\033[0m")
-
     if not users:
         print("\n\033[33mBelum ada akun terdaftar\033[0m")
         return
-
     # Header tabel
-    print(f"\n{'Username':<10} | {'Role':<10} | {'Emp.ID':<8} | {'Nama Karyawan':<20}")
-    print("-"*60)
-
+    print(f"\n{'Username':<12} | {'Role':<10} | {'ID (EMP)':<8} | {'Nama Karyawan':<15} | {'Status':<10} | {'Last Login':<20}")
+    print("-"*95)
     # Loop semua akun
     for uname, data in users.items():
         emp_id = data.get("employee_id", "N/A")
         emp_name = "Unknown"
-        role = "N/A"
-
-        # Ambil nama & role karyawan dari seed data
+        role = data.get("role", "N/A")   # role akun, bkn hnya role karyawan
+        status = data.get("status", "Aktif")  # default aktif
+        last_login = data.get("last_login", "-")
+        # Ambil nama karyawan dari store
         if emp_id in store.employees:
             emp_name = store.employees[emp_id].name
-            role = store.employees[emp_id].role
 
-        print(f"{uname:<10} | {role:<10} | {emp_id:<8} | {emp_name:<20}")
+        print(f"{uname:<12} | {role:<10} | {emp_id:<8} | {emp_name:<15} | {status:<10} | {last_login:<20}")
 
 def lihat_profil(emp_id, current_user, current_role):
     print("\n\033[44m=========== PROFIL KARYAWAN ===========\033[0m")
     user_data = users.get(current_user)
     if current_role != "admin":
         if not user_data or user_data.get("employee_id") != emp_id:
-            print("\033[31mAnda hanya bisa melihat profil sendiri\033[0m")
+            print("\n\033[31mAnda hanya bisa melihat profil sendiri\033[0m")
             return
 
     if emp_id not in store.employees:
-        print("\033[31mKaryawan tidak ditemukan\033[0m")
+        print(f"\n\033[31mKaryawan '{emp_id}' tidak ditemukan\033[0m")
         return
 
     emp = store.employees[emp_id]
 
-    print(f"ID Karyawan   : {emp.employee_id}")
+    print(f"ID Karyawan   : {emp.id}")
     print(f"Nama          : {emp.name}")
     print(f"Role          : {emp.role}")
-    print(f"Status        : {emp.status if hasattr(emp, 'status') else 'N/A'}")
-
+    print(f"Alamat        : {getattr(emp, 'address', '-')}")
+    print(f"Nomor HP      : {getattr(emp, 'phone', '-')}")
+    print(f"Status        : {getattr(emp, 'status', 'N/A')}")
     # Hubungan dengan akun login
     for uname, data in users.items():
         if data.get("employee_id") == emp_id:
             print(f"Akun Login    : {uname}")
             print(f"Role Akun     : {data.get('role','N/A')}")
+            print(f"Status Akun   : {data.get('status','Aktif')}")
+            print(f"Last Login    : {data.get('last_login','-')}")
             break
 
 def edit_profil(emp_id, current_user, current_role):
     if emp_id not in store.employees:
-        print("\033[31mKaryawan tidak ditemukan\033[0m")
+        print(f"\n\033[31mKaryawan '{emp_id}' tidak ditemukan\033[0m")
         return
 
     emp = store.employees[emp_id]
@@ -1008,18 +1020,84 @@ def edit_profil(emp_id, current_user, current_role):
             emp.phone = new_phone
 
     # Hanya admin boleh ubah status & role
-    if current_role == "admin":
-        new_status = input(f"Status ({emp.status}): ").strip()
-        if new_status:
-            emp.status = new_status
+        if current_role == "admin":
+            new_status = input(f"Status ({emp.status}): ").strip()
+            if new_status:
+                emp.status = new_status
+                # sinkron ke akun login
+                for uname, data in users.items():
+                    if data.get("employee_id") == emp_id:
+                        data["status"] = new_status
 
-        new_role = input(f"Role ({emp.role}): ").strip()
-        if new_role:
-            emp.role = new_role
+            new_role = input(f"Role ({emp.role}): ").strip()
+            if new_role:
+                emp.role = new_role
+                for uname, data in users.items():
+                    if data.get("employee_id") == emp_id:
+                        data["role"] = new_role
     else:
         print("\n\033[33mAnda tidak memiliki izin untuk mengubah status atau role\033[0m")
 
     print("\n\033[32mProfil berhasil diperbarui\033[0m")
+
+def set_account_status():
+    uname = input("Masukkan username akun: ").strip().lower()
+    if uname not in users:
+        print(f"\n\033[31mAkun {uname} tidak ditemukan\033[0m")
+        return
+
+    emp_id = users[uname].get("employee_id")
+    emp_name = store.employees[emp_id].name if emp_id in store.employees else "Unknown"
+
+    current_status = users[uname].get("status", "Aktif")
+    print(f"\nStatus akun '{uname}' ({emp_name}) saat ini: {current_status}")
+
+    if current_status == "\033[32mAktif\033[0m":
+        yakin = input("Nonaktifkan akun ini? (y/n): ").strip().lower()
+        if yakin == "y":
+            users[uname]["status"] = "\033[33mNonaktif\033[0m"
+            print(f"\n\033[33mAkun '{uname}' ({emp_name}) berhasil dinonaktifkan\033[0m")
+    else:
+        yakin = input("Aktifkan kembali akun ini? (y/n): ").strip().lower()
+        if yakin == "y":
+            users[uname]["status"] = "\033[32mAktif\033[0m"
+            print(f"\n\033[32mAkun '{uname}' ({emp_name}) berhasil diaktifkan kembali\033[0m")
+    save_users()
+
+def search_account(keyword: str):
+    print("\n\033[44m=========== PENCARIAN AKUN ===========\033[0m")
+    if not keyword:
+        print("\n\033[31mInput pencarian tidak boleh kosong\033[0m")
+        return
+
+    keyword = keyword.lower()
+    found = False
+
+    # Header tabel
+    print(f"\n{'Username':<12} | {'Role':<10} | {'ID (EMP)':<8} | {'Nama Karyawan':<10} | {'Status':<10} | {'Last Login':<20}")
+    print("-"*95)
+    # Loop semua akun
+    for uname, data in users.items():
+        emp_id = data.get("employee_id", "N/A")
+        emp_name = "Unknown"
+        role = data.get("role", "N/A")
+        status = data.get("status", "Aktif")
+        last_login = data.get("last_login", "-")
+
+        if emp_id in store.employees:
+            emp_name = store.employees[emp_id].name
+        # Cocokkan dengan username, nama karyawan, atau Emp.ID
+        if keyword in uname.lower() or keyword in emp_name.lower() or keyword in emp_id.lower():
+            print(f"{uname:<12} | {role:<10} | {emp_id:<8} | {emp_name:<10} | {status:<10} | {last_login:<20}")
+            found = True
+
+    if not found:
+        print(f"\n\033[33mTidak ada akun yang cocok dengan '{keyword}'\033[0m")
+
+def update_last_login(uname: str):
+    if uname in users:
+        users[uname]["last_login"] = datetime.now().strftime("%Y-%m-%d (%H:%M:%S)")
+        save_users()
 
 # Login
 def login():
@@ -1074,7 +1152,7 @@ def delete_user():
         else:
             print("\n\033[33mPenghapusan dibatalkan\033[0m")
     else:
-        print("\n\033[33mUsername tidak ditemukan\033[0m")
+        print(f"\n\033[33mUsername '{username}' tidak ditemukan\033[0m")
 
 # Utk transaksi
 def safe_load_json_line(line: str):
@@ -1223,7 +1301,7 @@ def edit_inventory(item_id: str, new_name: str = None, new_price: int = None,
 
     print(f"\033[32mBarang {item_id} berhasil diperbarui\033[0m")
 
-def add_employee(name: str, role: str, silent=False):
+def add_employee(name: str, role: str, address: str = "", phone: str = "", silent=False):
     # Cek duplikasi nama
     for emp in store.employees.values():
         if emp.name.lower() == name.lower():
@@ -1233,12 +1311,19 @@ def add_employee(name: str, role: str, silent=False):
 
     # Generate ID karyawan
     emp_id = store.gen_id("EMP")
-    store.employees[emp_id] = Employee(emp_id, name, role)
+
+    # Buat objek Employee dengan alamat & telepon
+    store.employees[emp_id] = Employee(emp_id, name, role, address, phone)
 
     # Tambahkan ke users (otomatis buat akun login)
-    username = name.lower().replace(" ", "")   # username default = nama kecil tanpa spasi
-    password = emp_id                          # password default = ID karyawan
-    users[username] = {"password": password, "employee_id": emp_id}
+    username = name.lower().replace(" ", "")
+    password = emp_id
+    users[username] = {
+        "password": password,
+        "employee_id": emp_id,
+        "role": role,
+        "status": "Aktif",
+        "last_login": "-"}
     save_users()
 
     if not silent:
@@ -2009,30 +2094,43 @@ def account_menu():
         # Menu admin
         if current_role == "admin":
             ops = {
-                "1": "Daftar Akun",        # lihat semua akun
-                "2": "Tambah Akun",        # buat akun baru
-                "3": "Ubah Role",          # ubah hak akses akun
-                "4": "Hapus Akun",         # hapus akun
-                "5": "Lihat Profil",       # lihat detail akun/karyawan
-                "6": "Reset Password",     # reset password akun
-                "7": "Lupa Password",      # recovery password (self-service)
-                "0": "Kembali"             # keluar dari menu
-            }
+                "1": "Daftar Akun",
+                "2": "Tambah Akun",
+                "3": "Ubah Role",
+                "4": "Hapus Akun",
+                "5": "Lihat Profil",
+                "6": "Reset Password",
+                "7": "Lupa Password",
+                "8": "Status Akun",
+                "9": "Cari Akun",
+                "10": "Edit Akun",
+                "0": "Kembali"}
         else:
             # khusus karyawan biasa
             ops = {
-                "5": "Reset Password",
-                "6": "Lihat Profil",
+                "5": "Lihat Profil",
+                "6": "Ganti Password",
                 "0": "Kembali"}
+            # status akun sbg pemberitahuan
+            user_status = users[current_user].get("status", "Aktif")
+            print(f"\n\033[34mStatus akun Anda saat ini: {user_status}\033[0m")
+            if user_status == "Nonaktif":
+                print("\033[31m⚠ Akun Anda sedang nonaktif, hubungi admin untuk mengaktifkan kembali\033[0m")
 
         choice = input_menu("Kelola Akun", ops)
         # akses admin
         if current_role == "admin":
+            # Daftar Akun
             if choice == "1": list_accounts()
+            # Tambah akun
             elif choice == "2": add_account()
+            # Hapus akun
             elif choice == "4": delete_user()
+            # Ubah role
             elif choice == "3": change_role()
+            # Reset pw
             elif choice == "6": reset_password()
+            # Lihat profil
             elif choice == "5":
                 keyword = input("ID/Nama akun: ").strip()
                 if not keyword:
@@ -2050,17 +2148,40 @@ def account_menu():
                     lihat_profil(emp_id, current_user, current_role)
                 else:
                     print(f"\n\033[31mAkun {keyword} tidak ditemukan\033[0m")
+            # Lupa pw
             elif choice == "7": forgot_password()
+            # Status akun
+            elif choice == "8": set_account_status()
+            # Cari akun
+            elif choice == "9":
+                keyword = input("Username/nama karyawan: ").strip().lower()
+                if not keyword:
+                    print("\n\033[31mInput tidak boleh kosong\033[0m")
+                    continue
+                search_account(keyword)
+            # Edit akun
+            elif choice == "10":
+                keyword = input("\nID/Nama akun: ").strip()
+                emp_id = None
+                if keyword.upper() in store.employees:
+                    emp_id = keyword.upper()
+                else:
+                    for eid, emp in store.employees.items():
+                        if emp.name.lower() == keyword.lower():
+                            emp_id = eid
+                            break
+                if emp_id:
+                    edit_profil(emp_id, current_user, current_role)
+                else:
+                    print("\n\033[31mKaryawan tidak ditemukan\033[0m")
             elif choice == "0": return
         # akses karyawan
         else:
-            if choice == "6":
-                reset_password()  # hanya untuk akun sendiri
-            elif choice == "5":
+            if choice == "5":
                 emp_id = users[current_user]["employee_id"]
                 lihat_profil(emp_id, current_user, current_role)
-            elif choice == "0":
-                return
+            elif choice == "6": reset_password()  # hanya untuk akun sendiri
+            elif choice == "0": return
 
 # Penjualan (PERLU TAMBHAN)
 def sales_menu():
