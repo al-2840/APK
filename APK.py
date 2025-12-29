@@ -1,13 +1,15 @@
 """
-Aplikasi       : ? (?) - Versi 4.10 (target max fix, MAJOR.MINOR.PATCH)
+Aplikasi       : ? (?) - Versi 4.3 (target max fix, MAJOR.MINOR.PATCH)
 Fitur          : Mengelola inventaris, karyawan, penjualan, service mobil, dan pemesanan makanan, semuanya terintegrasi dengan laporan ringkas di dashboard.
 Penulis        : 2840 & 2835
-Versi (update) : 4.2.9
+Versi (update) : 4.2.10
 """
 import sys, time, ast, json, random, os
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 from typing import Dict, List, Tuple, Optional
+from dataclasses import asdict
+
 
 ''' DATA LAYER '''
 # Data (10 item per module)
@@ -836,20 +838,68 @@ def print_lokomotif():
         print(f"{lok.id:<8} | {lok.name:<20} | {lok.service_type:<15} | "
             f"{format_rupiah(lok.rate_per_day):<15} | {status_color:<12}")
 
-# Menu Makanan
+# Makanan
 def print_menu_items():
     print("\n\033[34m>> MENU MAKANAN:\033[0m")
     if not store.menu:
         print("\033[31m- KOSONG -\033[0m")
         return
-
     # Header tabel
     print(f"{'ID':<8} | {'Nama Menu':<20} | {'Harga':<15} | {'Stok':<6}")
     print("-"*55)
-
     # Isi tabel
     for m in store.menu.values():
         print(f"{m.id:<8} | {m.name:<20} | {format_rupiah(m.price):<15} | {m.stock:<6}")
+
+def tambah_makanan():
+    head("TAMBAH MENU MAKANAN")
+    nama = input("\nNama makanan: ").strip()
+    harga = input_int("Harga: ", min_val=1000)
+    stok = input_int("Stok: ", min_val=1)
+
+    # Generate ID menu baru
+    menu_id = store.gen_id("MEN")
+    # Buat objek
+    store.menu[menu_id] = MenuItem(
+        id=menu_id,
+        name=nama,
+        price=harga,
+        stock=stok)
+    # catat aktivitas karyawan
+    log_employee_action(current_user, current_role, "Tambah Menu Food", {"id": menu_id, "nama": nama, "harga": harga, "stok": stok})
+    print(f"\n\033[32mMenu {nama} berhasil ditambahkan dengan ID {menu_id}\033[0m")
+
+def proses_pembayaran_makanan(customer_name: str, table_number: str, cart: List[Tuple[str, int]]):
+    # Hitung total
+    total = sum(store.menu[mid].price * q for mid, q in cart)
+    # Buat objek FoodOrder
+    order = FoodOrder(
+        items=cart,
+        total=total,
+        date=datetime.now().strftime("%Y-%m-%d (%H:%M)"),
+        waiter=current_user,
+        customer_name=customer_name,
+        table_number=table_number)
+    
+    store.food_orders.append(order)
+    # Simpan ke file (pakai asdict biar rapi)
+    with open("food_orders.txt", "a") as f:
+        f.write(json.dumps(asdict(order)) + "\n")
+    # Integrasi ke penjualan (pakai dataclass Sale)
+    sale_id = store.gen_id("SALE")
+    sale = Sale(
+        sale_id=sale_id,
+        items=cart,
+        total=total,
+        date=order.date,
+        cashier=current_user)
+    store.sales.append(sale)
+    # catat penjualan
+    log_sale("food", order.customer_name, total, {"items": cart, "table": table_number})
+    # catat aktivitas karyawan
+    log_employee_action(current_user,current_role,"Kasir Food",{"customer": customer_name, "table": table_number, "items": cart, "total": total})
+    # Cetak nota
+    tampilkan_nota_makanan(order, store)
 
 # Sparepart
 def pilih_sparepart():
@@ -861,11 +911,11 @@ def pilih_sparepart():
         if part_id == "":
             break
         if part_id not in store.inventory:
-            print("\033[31mID tidak ditemukan\033[0m")
+            print("\n\033[31mID tidak ditemukan\033[0m")
             continue
         qty = input_int("Jumlah: ", min_val=1)
         if qty > store.inventory[part_id].stock:
-            print("\033[31mStok tidak cukup\033[0m")
+            print("\n\033[31mStok tidak cukup\033[0m")
             continue
         store.inventory[part_id].stock -= qty
         parts_used.append(f"{store.inventory[part_id].name} x{qty}")
@@ -885,15 +935,29 @@ def tampilkan_nota_service(record, jasa, parts_cost, total_fee):
     print(f"Biaya Jasa    : {format_rupiah(jasa)}")
     print(f"Total Biaya   : {format_rupiah(total_fee)}")
 
-def tampilkan_nota_makanan(order, store):
+def tampilkan_nota_makanan(order: FoodOrder, store: Store):
     print("\n\033[30m=== NOTA PEMBELIAN MAKANAN PT.AMOT \033[0m")
     print(f"Customer      : {order.customer_name}")
     print(f"Meja          : {order.table_number}")
     print(f"Waiter        : {order.waiter}")
     print(f"Tanggal Pesan : {order.date}")
-    detail = [f"{store.menu[mid].name} x{q}" for mid, q in order.items]
-    print(f"Pesanan       : {'; '.join(detail)}")
-    print(f"Total Biaya   : {format_rupiah(order.total)}")
+
+    # Detail pesanan
+    detail_lines = []
+    for mid, qty in order.items:
+        item = store.menu.get(mid)
+        if item:
+            subtotal = item.price * qty
+            detail_lines.append(f"{item.name}       x{qty} = {format_rupiah(subtotal)}")
+        else:
+            detail_lines.append(f"{mid}     x{qty}")
+
+    print("Pesanan       :")
+    for line in detail_lines:
+        print(f"  - {line}")
+
+    print(f"\nTotal Biaya   : {format_rupiah(order.total)}")
+    print("\033[34m=== Terima kasih telah berbelanja di PT.AMOT \033[0m")
 
 def tampilkan_nota_rental(record):
     print("\n\033[30m=== NOTA RENTAL PT.AMOT \033[0m")
@@ -1567,7 +1631,7 @@ def add_inventory(name: str, price: int, category: str = "Umum", stok_awal: int 
     for it in store.inventory.values():
         if it.name.lower() == name.lower():
             if not silent:
-                print("\033[31mBarang dengan nama ini sudah ada\033[0m")
+                print("\n\033[31mBarang dengan nama ini sudah ada\033[0m")
             return None
 
     # Buat ID baru
@@ -1584,9 +1648,8 @@ def add_inventory(name: str, price: int, category: str = "Umum", stok_awal: int 
         "name": name,
         "jumlah": item.confirmed_stock,
         "harga": price,
-        "kategori": str(category),   # simpan kode kategori
-        "status": "Pending"
-    }
+        "kategori": str(category),
+        "status": "Pending"}
     with open("inventory_log.txt", "a") as f:
         f.write(json.dumps(record) + "\n")
 
@@ -1594,17 +1657,15 @@ def add_inventory(name: str, price: int, category: str = "Umum", stok_awal: int 
     pusat = store.warehouses.get("Pusat")
     if pusat:
         pusat.stock[item_id] = pusat.stock.get(item_id, 0) + stok_awal
-
     if not silent:
         print(f"\033[32mBarang {name} ditambahkan dengan ID {item_id}\033[0m")
-
     return item
 
 def edit_inventory(item_id: str, new_name: str = None, new_price: int = None,
                 new_category: str = None, new_confirmed_stock: int = None,
                 delete: bool = False, reason: str = None, note: str = None):
     if item_id not in store.inventory:
-        print("\033[31mBarang tidak ditemukan\033[0m")
+        print("\n\033[31mBarang tidak ditemukan\033[0m")
         return
 
     item = store.inventory[item_id]
@@ -1617,8 +1678,7 @@ def edit_inventory(item_id: str, new_name: str = None, new_price: int = None,
             "name": item.name,
             "price": item.price,
             "reason": reason if reason else "Tidak ada alasan",
-            "note": note if note else ""
-        }
+            "note": note if note else ""}
         with open("inventory_deletions.txt", "a") as f:
             f.write(json.dumps(record) + "\n")
 
@@ -1690,7 +1750,7 @@ def add_lokomotif(name: str, service_type: str, rate_per_day: int, silent=False)
     for lok in store.lokomotif.values():
         if lok.name.lower() == name.lower():
             if not silent:
-                print("\033[31mLokomotif dengan nama ini sudah ada\033[0m")
+                print("\n\033[31mLokomotif dengan nama ini sudah ada\033[0m")
             return
     lok_id = store.gen_id("LOK")
     store.lokomotif[lok_id] = Lokomotif(
@@ -1698,21 +1758,20 @@ def add_lokomotif(name: str, service_type: str, rate_per_day: int, silent=False)
         name=name,
         service_type=service_type,
         rate_per_day=rate_per_day,
-        status="Tersedia"
-    )
+        status="Tersedia")
     if not silent:
-        print(f"\033[32mLokomotif {name} ditambahkan dengan ID {lok_id}\033[0m")
+        print(f"\n\033[32mLokomotif {name} ditambahkan dengan ID {lok_id}\033[0m")
 
 def add_menu(name: str, stock: int, price: int, silent=False):
     for menu in store.menu.values():
         if menu.name.lower() == name.lower():
             if not silent:
-                print("\033[31mMenu dengan nama ini sudah ada\033[0m")
+                print("\n\033[31mMenu dengan nama ini sudah ada\033[0m")
             return
     menu_id = store.gen_id("MEN")
     store.menu[menu_id] = MenuItem(menu_id, name, stock, price)
     if not silent:
-        print(f"\033[32mMenu {name} ditambahkan dengan ID {menu_id}, stok awal {stock}\033[0m")
+        print(f"\n\033[32mMenu {name} ditambahkan dengan ID {menu_id}, dengan stok {stock}\033[0m")
 
 def add_warehouse(name: str, address: str, silent=False):
     # cek duplikat
@@ -1720,7 +1779,6 @@ def add_warehouse(name: str, address: str, silent=False):
         if w.name.lower() == name.lower():
             print(f"\n\033[31mGudang dengan nama '{name}' sudah ada (ID: {w.warehouse_id})\033[0m")
             return
-
     # generate ID unik
     wid = f"W{len(store.warehouses)+1:03}"
     store.warehouses[wid] = Warehouse(wid, name, address)
@@ -1730,8 +1788,7 @@ def add_warehouse(name: str, address: str, silent=False):
 
 def add_account():
     global users
-    print("\n\033[44m=========== BUAT AKUN KARYAWAN ===========\033[0m")
-
+    head("BUAT AKUN KARYAWAN")
     # Tampilkan daftar karyawan yang belum punya akun
     print("\n>> Nama Karyawan:")
     available = []
@@ -1748,14 +1805,13 @@ def add_account():
         print("\n\033[3mJika karyawan belum terdaftar, pilih menu 'Tambah Karyawan' di modul Karyawan terlebih dahulu\033[0m")
 
     # Input username
-    username = input("Username baru: ").strip().lower()
+    username = input("\nUsername baru: ").strip().lower()
     if not username:
         print("\n\033[31mUsername tidak boleh kosong\033[0m")
         return
     if username in users:
         print(f"\n\033[31mUsername ini {username} sudah ada\033[0m")
         return
-
     # Input password
     password = input("Password: ").strip()
     if not password:
@@ -1780,7 +1836,7 @@ def add_account():
     role = role_ops[role_choice]
 
     # Pilih karyawan dari daftar
-    emp_id = input("ID Karyawan: ").strip().upper()
+    emp_id = input("\nID Karyawan: ").strip().upper()
     if emp_id not in available:
         print("\n\033[31mID Karyawan tidak valid atau sudah punya akun\033[0m")
         print("\nGunakan menu 'Tambah Karyawan' di modul Karyawan untuk membuat ID baru.")
@@ -1794,7 +1850,6 @@ def add_account():
         "status": "Aktif",
         "last_login": "-"}
     save_users()
-
     print(f"\n\033[32mAkun '{username}' berhasil ditambahkan untuk karyawan {store.employees[emp_id].name} (role: {role})\033[0m")
 
 def hapus_edit_transaksi():
@@ -2825,140 +2880,135 @@ def rental_menu():
         elif p == "0":
             return
 
-# Pesan Makan (PERLU TAMBHAN)
+# Pesan Makan (clear v.2.10)
 def food_menu():
     while True:
         h = head("KELOLA PEMESANAN")
         if current_role in ["admin", "dapur"]:
-            ops = {"1": "Lihat menu", "2": "Buat pesanan", "3": "Riwayat pesanan", "4": "Hapus menu", "0": "Kembali"}
+            ops = {
+                "1": "Lihat menu",
+                "2": "Tambah menu",
+                "3": "Buat pesanan",
+                "4": "Riwayat pesanan",
+                "5": "Hapus menu",
+                "0": "Kembali"}
         elif current_role == "pembeli":
-            ops = {"1": "Lihat menu", "2": "Buat pesanan", "3": "Riwayat pesanan", "0": "Kembali"}
+            ops = {
+                "1": "Lihat menu",
+                "2": "Buat pesanan",
+                "3": "Riwayat pesanan",
+                "0": "Kembali"}
         else:
-            print("\033[31mRole tidak berhak mengakses modul makanan\033[0m")
+            print("\n\033[31mRole tidak berhak mengakses modul makanan\033[0m")
             return
-
         p = input_menu("Data Pesan Makanan", ops)
-        # Daftar menu
+        # Lihat menu
         if p == "1":
             print_menu_items()
             pause()
+        # Tambah menu
+        elif p == "2" and current_role in ["admin", "dapur"]: tambah_makanan()
         # Buat pesanan
-        elif p == "2":
+        elif p == "2" or p == "3":
             if not check_access("pembeli") and not check_access("dapur"):
                 return
 
-            customer_name = input("Nama customer: ").strip()
+            customer_name = input("\nNama customer: ").strip()
             table_number = input("Nomor meja: ").strip()
-
             cart: List[Tuple[str, int]] = []
             while True:
                 print_menu_items()
-                print("\n\033[33m\033[3m*Enter untuk selesai\033[0m\033[0m")
-                menu_id = input("ID Menu: ").strip().upper()
-                if menu_id == "":
+                print("\n\033[33m\033[3m*Enter untuk selesai\033[0m")
+                pilihan = input("ID/Nama Menu: ").strip()
+                if pilihan == "":
                     break
-                if menu_id not in store.menu:
-                    print(f"\n\033[31mID {menu_id} tidak ditemukan\033[0m")
-                    continue
+                # Cek apakah input berupa ID
+                if pilihan.upper() in store.menu:
+                    menu_id = pilihan.upper()
+                else:
+                    # Cek apakah input cocok dengan nama menu
+                    found = None
+                    for mid, item in store.menu.items():
+                        if item.name.lower() == pilihan.lower():
+                            found = mid
+                            break
+                    if not found:
+                        print(f"\n\033[31mMenu '{pilihan}' tidak ditemukan\033[0m")
+                        continue
+                    menu_id = found
+
                 qty = input_int("Jumlah: ", min_val=1)
                 if qty > store.menu[menu_id].stock:
                     print("\n\033[33mStok menu tidak cukup\033[0m")
                     continue
+
                 store.menu[menu_id].stock -= qty
                 cart.append((menu_id, qty))
 
             if not cart:
-                print("\033[33mKeranjang kosong\033[0m \033[47mBatal\033[0m")
+                print("\n\033[33mKeranjang kosong\033[0m \033[47mBatal\033[0m")
                 return
-
-            total = sum(store.menu[mid].price * q for mid, q in cart)
-
-            order = FoodOrder(
-                items=cart,
-                total=total,
-                date=datetime.now().strftime("%Y-%m-%d (%H:%M)"),
-                waiter=current_user,
-                customer_name=customer_name,
-                table_number=table_number
-            )
-            store.food_orders.append(order)
-
-            # Catat ke file food_orders
-            with open("food_orders.txt", "a") as f:
-                f.write(json.dumps(order.__dict__) + "\n")
-
-            # Integrasi ke penjualan
-            sale_id = store.gen_id("SALE")
-            store.sales[sale_id] = {
-                "type": "food",
-                "ref": order.customer_name,
-                "amount": total,
-                "date": order.date
-            }
-            log_sale("food", order.customer_name, total, {"items": cart, "table": table_number})
-
-            # Logging aktivitas karyawan
-            log_employee_action(
-                current_user,
-                current_role,
-                "Buat Pesanan Food",
-                {"customer": customer_name, "table": table_number, "items": cart, "total": total})
-
-            # Cetak nota
-            tampilkan_nota_makanan(order, store)
-        # Riwayat
-        elif p == "3":
+            proses_pembayaran_makanan(customer_name, table_number, cart)
+        # Riwayat pesanan
+        elif p == "3" or p == "4":
             if not store.food_orders:
                 print("\n\033[33mBelum ada pesanan\033[0m")
             else:
                 print("\n>> Riwayat Pesanan:")
                 for idx, o in enumerate(store.food_orders, 1):
-                    detail = []
-                    for menu_id, qty in o.items:
-                        m = store.menu.get(menu_id)
-                        nm = m.name if m else menu_id
-                        detail.append(f"{nm} x{qty}")
+                    detail = [f"{store.menu[mid].name}      x{qty}" for mid, qty in o.items]
                     print(f"{idx}. {o.date} | {o.waiter} | {'; '.join(detail)} | Total: {format_rupiah(o.total)}")
             pause()
-        # Hapus menu + alasn
-        elif p == "4":
+        # Hapus menu
+        elif p == "5" and current_role in ["admin", "dapur"]:
             print_menu_items()
-            menu_id = input("ID menu yang dihapus: ").strip().upper()
-            if menu_id in store.menu:
-                alasan_ops = {"1": "Kadaluarsa", "2": "Habis", "3": "Discontinue", "4": "Resep berubah", "5": "Lainnya"}
-                alasan_choice = input_menu("Alasan penghapusan", alasan_ops)
-                alasan = alasan_ops.get(alasan_choice, "Lainnya")
-                note = ""
-                if alasan == "Lainnya":
-                    note = input("Keterangan tambahan: ").strip()
-                confirm = input(f"Yakin hapus menu {store.menu[menu_id].name}? (y/n): ").lower()
-                if confirm == "y":
-                    record = {
-                        "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                        "operator": current_user,
-                        "menu_id": menu_id,
-                        "name": store.menu[menu_id].name,
-                        "stock": store.menu[menu_id].stock,
-                        "price": store.menu[menu_id].price,
-                        "reason": alasan,
-                        "note": note
-                    }
-                    with open("menu_deletions.txt", "a") as f:
-                        f.write(json.dumps(record) + "\n")
-                    del store.menu[menu_id]
-                    print("\033[32mMenu berhasil dihapus\033[0m")
-                else:
-                    print("\033[33mPenghapusan dibatalkan\033[0m")
+            pilihan = input("\nID/Nama menu: ").strip()
+            # Cari menu berdasarkan ID
+            if pilihan.upper() in store.menu:
+                menu_id = pilihan.upper()
             else:
-                print("\033[31mID tidak ditemukan\033[0m")
+            # Cari menu dg nama
+                found = None
+                for mid, item in store.menu.items():
+                    if item.name.lower() == pilihan.lower():
+                        found = mid
+                        break
+                if not found:
+                    print(f"\033[31mMenu '{pilihan}' tidak ditemukan\033[0m")
+                    continue
+                menu_id = found
+            # Alasan penghapusan
+            alasan_ops = {"1": "Kadaluarsa", "2": "Habis", "3": "Discontinue", "4": "Resep berubah", "5": "Lainnya"}
+            alasan_choice = input_menu("Alasan penghapusan", alasan_ops)
+            alasan = alasan_ops.get(alasan_choice, "Lainnya")
+            note = ""
+            if alasan == "Lainnya":
+                note = input("Keterangan tambahan: ").strip()
+
+            confirm = input(f"\nYakin hapus menu {store.menu[menu_id].name}? (y/n): ").lower()
+            if confirm == "y":
+                record = {
+                    "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "operator": current_user,
+                    "menu_id": menu_id,
+                    "name": store.menu[menu_id].name,
+                    "stock": store.menu[menu_id].stock,
+                    "price": store.menu[menu_id].price,
+                    "reason": alasan,
+                    "note": note}
+                with open("menu_deletions.txt", "a") as f:
+                    f.write(json.dumps(record) + "\n")
+                del store.menu[menu_id]
+                print("\n\033[32mMenu berhasil dihapus\033[0m")
+            else:
+                print("\n\033[33mPenghapusan dibatalkan\033[0m")
         elif p == "0":
             return
-
+        
 # Laporan (PERLU TAMBHAN)
 def laporan_detail():
     head("LAPORAN DETAIL")
-
-    # Barang Terlaris
+# Barang Terlaris
     counter = {}
     for s in store.sales:
         for i, q in s.items:
@@ -2966,16 +3016,14 @@ def laporan_detail():
             key = it.name if it else i
             counter[key] = counter.get(key, 0) + q
     top_items(counter, "Barang Terlaris", "unit")
-
-    # Lokomotif Terlaris
+# Lokomotif Terlaris
     lokomotif_count = {}
     for r in store.services:
         lok = store.lokomotif.get(r.lokomotif_id)
         if lok:
             lokomotif_count[lok.name] = lokomotif_count.get(lok.name, 0) + 1
     top_items(lokomotif_count, "Lokomotif Terlaris", "kali diservis")
-
-    # Menu Favorit
+# Menu Favorit
     food_count = {}
     for o in store.food_orders:
         for i, q in o.items:
@@ -2985,11 +3033,10 @@ def laporan_detail():
             else:
                 food_count[i] = food_count.get(i, 0) + q
     top_items(food_count, "Menu Favorit", "porsi")
-
-    # Laporan Karyawan & Akun
+# Laporan Karyawan & Akun
     print("\n\033[34m>> Laporan Karyawan & Akun\033[0m")
-    print(f"{'Emp.ID':<8} | {'Nama':<20} | {'Jabatan':<10} | {'Username':<15} | {'Role Akun':<10}")
-    print("-"*70)
+    print(f"{'Emp.ID':<8} | {'Nama':<20} | {'Jabatan':<10} | {'Username':<15} | {'Role Akun':<10} | {'Status':<10}")
+    print("-"*85)
     for emp_id, emp in store.employees.items():
         username = "-"
         role_akun = "-"
@@ -2998,7 +3045,7 @@ def laporan_detail():
                 username = uname
                 role_akun = udata.get("role", "-")
                 break
-        print(f"{emp.id:<8} | {emp.name:<20} | {emp.role:<10} | {username:<15} | {role_akun:<10}")
+        print(f"{emp.id:<8} | {emp.name:<20} | {emp.role:<10} | {username:<15} | {role_akun:<10} | {emp.status:<10}")
 
 # >> Main Menu 
 def main_menu():

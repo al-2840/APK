@@ -25,10 +25,7 @@ penjualan_list = [
 
 karyawan_list = ["Andi Pratama", "Budi Santoso", "Rian Saputra", "Doni Prasetyo", "Rizky Ramadhan"]
 perbaikan_list = []
-inventaris_list = [
-    {"barang": "Kunci Inggris", "jumlah": "5"},
-    {"barang": "Dongkrak Hidrolik", "jumlah": "2"}
-]
+inventaris_list = [{"barang": "Kunci Inggris", "jumlah": "5"},{"barang": "Dongkrak Hidrolik", "jumlah": "2"}]
 
 # ------------------ FUNGSI RENTAL MOBIL ------------------
 
