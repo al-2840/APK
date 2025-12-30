@@ -1,7 +1,12 @@
-users = {
-    "admin": {"password": "123", "role": "admin"},
-    "1": {"password": "1", "role": "kasir"},
-    "2": {"password": "2", "role": "service"},
-    "3": {"password": "3", "role": "dapur"},
-    "4": {"password": "4", "role": "pembeli"},
-    "5": {"password": "5", "role": "gudang"}}
+NAMA	| ROLE		| PW
+
+Putra	| Dapur		| EMP0001
+Andi		| Kasir		| EMP0002
+Budi 	| Service		| EMP0003
+Citra 	| Admin		| EMP0004
+Putri 	| Rental		| EMP0005
+Eko		| Gudang		| EMP0006
+Fajar 	| Kasir		| EMP0007
+Gina 	| Service		| EMP0008
+Hadi 	| Dapur		| EMP0009
+Indra 	| Rental		| EMP0010

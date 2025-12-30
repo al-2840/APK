@@ -37,14 +37,14 @@ def seed_data():
         ("Cat Body Biru", 200000, "2", 4),
         ("Toolkit Mekanik", 500000, "2", 6),
         ("Dongkrak Hidrolik", 1250000, "2", 1),
-        ("Solar", 10000, "3", 100),]
-
+        ("Solar", 10000, "3", 100),
+    ]
     for name, harga, kategori, stok in items:
         item = add_inventory(name, harga, kategori, stok_awal=stok, silent=True)
-        if pusat:  # hanya kalau gudang pusat ditemukan
+        if pusat:
             pusat.stock[item.item_id] = {"qty": stok, "status": "Baik"}
-        
-    # Karyawan + akun login
+
+    # Karyawan + akun login (cek dulu apakah sudah ada)
     for name, role, address, phone in [
         ("Putra", "Dapur", "Jl. Merdeka No.1", "08123456789"),
         ("Andi", "Kasir", "Jl. Sudirman No.3", "081234598998"),
@@ -55,10 +55,18 @@ def seed_data():
         ("Fajar", "Kasir", "Jl. Gatot Subroto No.15", "08678901234"),
         ("Gina", "Service", "Jl. Banjarbaru Raya No.20", "08789012345"),
         ("Hadi", "Dapur", "Jl. Panglima Batur No.25", "08890123456"),
-        ("Indra", "Rental", "Jl. Hasan Basri No.30", "08901234567"),]:
+        ("Indra", "Rental", "Jl. Hasan Basri No.30", "08901234567"),
+    ]:
         emp_id = add_employee(name, role, address, phone, silent=True)
         username = name.lower()
-        users[username] = {"password": emp_id, "employee_id": emp_id}
+        if username not in users:   # hanya tambah kalau belum ada
+            users[username] = {
+                "password": emp_id,        # sementara password = emp_id
+                "employee_id": emp_id,
+                "role": role.lower(),
+                "status": "Aktif",
+                "last_login": "-"          # default, akan diupdate saat login
+            }
     save_users()
 
     # Servis
@@ -1149,8 +1157,20 @@ def load_users():
         return {}
 
 def save_users():
+    # pastikan all account punya filed wajib
+    for uname, info in users.items():
+        if "last_login" not in info:
+            info["last_login"] = "-"
+        if "status" not in info:
+            info["status"] = "Aktif"
+        if "role" not in info:
+            info["role"] = "N/A"
+        if "employee_id" not in info:
+            info["employee_id"] = "N/A"
+
     with open("users.json", "w") as f:
         json.dump(users, f, indent=2)
+
 # Inisialisasi users
 users = load_users()
 # default admin
@@ -1220,14 +1240,18 @@ def register():
         else:
             print("\n\033[31mPilihan tidak valid. Coba lagi\033[0m")
 
-    # karyawan baru
+    # Karyawan baru
     emp_id = store.gen_id("EMP")
     store.employees[emp_id] = Employee(emp_id, username.capitalize(), role)
 
-    # Simpan user employee_id + role
-    users[username] = {"password": password, "employee_id": emp_id, "role": role}
+    # Simpan user dengan field lengkap
+    users[username] = {
+        "password": password,
+        "employee_id": emp_id,
+        "role": role,
+        "status": "Aktif",       # default status
+        "last_login": "-"}        # default last login
     save_users()
-
     print(f"\n\033[32mRegistrasi berhasil sebagai \033[36m{username}\033[0m \033[33m(role: {role})\033[0m")
 
 # Akun
@@ -1321,7 +1345,7 @@ def forgot_password():
     print("\033[33mUser wajib login dengan password sementara lalu mengganti password sendiri\033[0m")
 
 def list_accounts(simple=False):
-    print("\n\033[44m=========== DAFTAR AKUN ===========\033[0m")
+    print("\n\033[44m============= DAFTAR AKUN =============\033[0m")
     if not users:
         print("\n\033[33mBelum ada akun terdaftar\033[0m")
         return
@@ -1354,7 +1378,7 @@ def list_accounts(simple=False):
             status = data.get("status", "Aktif")
             last_login = data.get("last_login", "-")
             status_display = "\033[32mAktif\033[0m" if status == "Aktif" else "\033[33mNonaktif\033[0m"
-            print(f"{uname:<12} | {role:<10} | {emp_id:<8} | {emp_name:<15} | {status_display:<11} | {last_login:<20}")
+            print(f"{uname:<12} | {role:<10} | {emp_id:<8} | {emp_name:<15} | {status_display:<21} | {last_login:<20}")
     pause()
 
 def lihat_profil(emp_id, current_user, current_role):
@@ -1510,9 +1534,10 @@ def search_account(keyword: str):
 
 def update_last_login(uname: str):
     if uname in users:
-        users[uname]["last_login"] = datetime.now().strftime("%Y-%m-%d (%H:%M:%S)")
+        ts = datetime.now().strftime("%Y-%m-%d (%H:%M:%S)")
+        users[uname]["last_login"] = ts
         save_users()
-
+        
 # Login
 def login():
     global current_user, current_role
@@ -1520,16 +1545,25 @@ def login():
         head("LOGIN SISTEM")
         print("\033[3m\033[33m*ketik 0 untuk kembali\033[0m\n")
         u = input("Username: ").strip().lower()
-        if u == "0": return
+        if u == "0": 
+            return
         p = input("Password: ").strip()
+
         if u in users and users[u]["password"] == p:
             emp_id = users[u].get("employee_id")
             emp = store.employees.get(emp_id) if emp_id else None
+
             current_user = u
-            current_role = users[u].get("role", emp.role.lower() if emp else "pembeli")
+            # pastikan role selalu lowercase agar cocok dengan main_menu
+            role_val = users[u].get("role", emp.role if emp else "pembeli")
+            current_role = role_val.lower()
 
             emp_name = emp.name if emp else u.capitalize()
             print(f"\n\033[32mLogin berhasil sebagai \033[33m{emp_name}\033[32m (role: {current_role})\033[0m")
+
+            # debug tambahan untuk memastikan role benar
+            print(f"[DEBUG] current_user={current_user}, current_role={current_role}")
+
             update_last_login(u)
             return
         else:
@@ -1540,6 +1574,7 @@ def logout():
     global current_user, current_role
     current_user, current_role = None, None
     print("\n\033[32mBerhasil logout. Silakan login kembali.\033[0m")
+    start_menu()
 
 # Delelte User uv.3.3
 def delete_user():
@@ -3201,12 +3236,15 @@ def start_menu():
 # >> Main
 def main():
     try:
-        seed_data()            # dtanya silent=True
-        if start_menu():       # login
-            load_sales()
-            load_services()
-            load_food_orders()
-            main_menu()
+        seed_data()   # isi data awal (silent=True di add_xxx)
+
+        while True:   # loop terus
+            if start_menu():   # login sukses
+                load_sales()
+                load_services()
+                load_food_orders()
+                main_menu()    # masuk ke menu utama sesuai role
+                # setelah logout, main_menu() return → balik ke loop → start_menu() lagi
     except KeyboardInterrupt:
         print("\n\033[41m Program dihentikan oleh user \033[0m")
         sys.exit(0)
