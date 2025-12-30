@@ -1563,7 +1563,6 @@ def login():
 
             # debug tambahan untuk memastikan role benar
             print(f"[DEBUG] current_user={current_user}, current_role={current_role}")
-
             update_last_login(u)
             return
         else:
@@ -1574,7 +1573,7 @@ def logout():
     global current_user, current_role
     current_user, current_role = None, None
     print("\n\033[32mBerhasil logout. Silakan login kembali.\033[0m")
-    start_menu()
+    return
 
 # Delelte User uv.3.3
 def delete_user():
@@ -3236,15 +3235,15 @@ def start_menu():
 # >> Main
 def main():
     try:
-        seed_data()   # isi data awal (silent=True di add_xxx)
+        seed_data()   # isi data awal
 
         while True:   # loop terus
             if start_menu():   # login sukses
                 load_sales()
                 load_services()
                 load_food_orders()
-                main_menu()    # masuk ke menu utama sesuai role
-                # setelah logout, main_menu() return → balik ke loop → start_menu() lagi
+                main_menu()    # tampilkan menu sesuai role
+                # setelah logout, main_menu() return → loop balik ke start_menu()
     except KeyboardInterrupt:
         print("\n\033[41m Program dihentikan oleh user \033[0m")
         sys.exit(0)
