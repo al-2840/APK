@@ -2,7 +2,7 @@
 Aplikasi       : ? (?) - Versi 4.3 (target max fix, MAJOR.MINOR.PATCH)
 Fitur          : Mengelola inventaris, karyawan, penjualan, service mobil, dan pemesanan makanan, semuanya terintegrasi dengan laporan ringkas di dashboard.
 Penulis        : 2840 & 2835
-Versi (update) : 4.2.10
+Versi (update) : 4.2.14
 """
 import sys, time, ast, json, random, os
 from datetime import datetime, timedelta
@@ -42,7 +42,7 @@ def seed_data():
     for name, harga, kategori, stok in items:
         item = add_inventory(name, harga, kategori, stok_awal=stok, silent=True)
         if pusat:
-            pusat.stock[item.item_id] = {"qty": stok, "status": "Baik"}
+            pusat.stock[item.item_id] = {"qty": stok, "status": "Pending"}
 
     # Karyawan + akun login (cek dulu apakah sudah ada)
     for name, role, address, phone in [
@@ -174,40 +174,44 @@ def kategori_color(kategori):
         return kategori
 
 # Inventaris & Gudang
-def find_item(query: str):
-    # pisahkan input berdasarkan koma
+def find_item(query: str, warehouse_id: str = None):
     keywords = [q.strip().lower() for q in query.split(",")]
     results = []
 
     for kw in keywords:
         # cari berdasarkan ID
         if kw.upper() in store.inventory:
-            results.append(store.inventory[kw.upper()])
+            item = store.inventory[kw.upper()]
+            # kalau ada warehouse_id, cek stok gudang
+            if warehouse_id:
+                wh = store.warehouses.get(warehouse_id)
+                if wh and item.item_id in wh.stock:
+                    results.append(item)
+            else:
+                results.append(item)
             continue
+
         # cari berdasarkan nama
         for item in store.inventory.values():
             if item.name.lower() == kw:
-                results.append(item)
+                if warehouse_id:
+                    wh = store.warehouses.get(warehouse_id)
+                    if wh and item.item_id in wh.stock:
+                        results.append(item)
+                else:
+                    results.append(item)
                 break
 
-    # kalau hanya 1 hasil, return objek langsung
     if len(results) == 1:
         return results[0]
-    # kalau banyak hasil, return list
-    return results
+    return results if results else None
 
 def find_warehouse(query: str):
-    # pisahkan input berdasarkan koma
-    keywords = [q.strip().lower() for q in query.split(",")]
-    results = []
-
-    for kw in keywords:
-        # cari berdasarkan ID atau nama gudang
-        for wh in store.warehouses.values():   # asumsi gudang disimpan dict
-            if wh.warehouse_id.lower() == kw or wh.name.lower() == kw:
-                results.append(wh)
-
-    return results
+    q = query.strip().lower()
+    for wh in store.warehouses.values():
+        if wh.warehouse_id.lower() == q or wh.name.lower() == q:
+            return wh
+    return None
 
 def inventory_per_gudang():
     print("\n\033[34m>> INVENTARIS PER GUDANG:\033[0m")
@@ -295,37 +299,37 @@ def print_inventory():
 
 def adjust_stock(item_id: str, warehouse_id: str, delta: int, silent=False):
     if item_id not in store.inventory:
-        if not silent: print("\033[31mItem tidak ditemukan\033[0m")
+        if not silent: print("\n\033[31mItem tidak ditemukan\033[0m")
         return
     if warehouse_id not in store.warehouses:
-        if not silent: print("\033[31mGudang tidak ditemukan\033[0m")
+        if not silent: print("\n\033[31mGudang tidak ditemukan\033[0m")
         return
     item = store.inventory[item_id]
     current = item.stock_by_warehouse.get(warehouse_id, 0)
     new_stock = current + delta
     if new_stock < 0:
         if not silent:
-            print(f"\033[31mStok {item.name} di {store.warehouses[warehouse_id].name} tidak cukup (tersedia {current})\033[0m")
+            print(f"\n\033[31mStok {item.name} di {store.warehouses[warehouse_id].name} tidak cukup (tersedia {current})\033[0m")
         return
     item.stock_by_warehouse[warehouse_id] = new_stock
     if not silent:
         wh_name = store.warehouses[warehouse_id].name
-        print(f"\033[32mStok {item.name} di {wh_name} sekarang {new_stock}\033[0m")
+        print(f"\n\033[32mStok {item.name} di {wh_name} sekarang {new_stock}\033[0m")
 
 def transfer_stock(item_id: str, from_wh: str, to_wh: str, qty: int):
     if item_id not in store.inventory:
-        print("\033[31mItem tidak ditemukan\033[0m")
+        print("\n\033[31mItem tidak ditemukan\033[0m")
         return
     if from_wh not in store.warehouses or to_wh not in store.warehouses:
-        print("\033[31mGudang asal/tujuan tidak ditemukan\033[0m")
+        print("\n\033[31mGudang asal/tujuan tidak ditemukan\033[0m")
         return
     if from_wh == to_wh:
-        print("\033[33mGudang asal dan tujuan tidak boleh sama\033[0m")
+        print("\n\033[33mGudang asal dan tujuan tidak boleh sama\033[0m")
         return
     item = store.inventory[item_id]
     current_stock = item.stock_by_warehouse.get(from_wh, 0)
     if current_stock < qty:
-        print(f"\033[31mStok di gudang {store.warehouses[from_wh].name} tidak cukup (tersedia {current_stock})\033[0m")
+        print(f"\n\033[31mStok di gudang {store.warehouses[from_wh].name} tidak cukup (tersedia {current_stock})\033[0m")
         return
     item.stock_by_warehouse[from_wh] = current_stock - qty
     item.stock_by_warehouse[to_wh] = item.stock_by_warehouse.get(to_wh, 0) + qty
@@ -333,43 +337,53 @@ def transfer_stock(item_id: str, from_wh: str, to_wh: str, qty: int):
     print(f"\033[32mTransfer {qty} unit {item.name} dari {store.warehouses[from_wh].name} ke {store.warehouses[to_wh].name}\033[0m")
 
 def konfirmasi_stok_gudang():
-    wh_id = input("ID Gudang: ").strip().upper()
-    if wh_id not in store.warehouses:
-        print("\033[31mGudang tidak ditemukan\033[0m")
-        return
+    # Tampilkan daftar gudang dulu
+    print_warehouses()
 
-    item_query = input("ID/Nama barang (gunakan koma): ").strip()
-    items = find_item(item_query)   # bisa return banyak item
+    # User pilih gudang (ID atau Nama)
+    wh_input = input("\nPilih ID/Nama Gudang yang mau dikonfirmasi stoknya: ").strip()
+    warehouse = find_warehouse(wh_input)
+    if not warehouse:
+        print("\n\033[31mGudang tidak ditemukan\033[0m")
+        return
+    wh_id = warehouse.warehouse_id
+
+    # User input barang (bisa banyak)
+    print_inventory()
+    item_query = input("\nMasukkan ID/Nama barang (gunakan koma): ").strip()
+    items = find_item(item_query)
     if not items:
-        print("\033[31mBarang tidak ditemukan\033[0m")
+        print("\n\033[31mBarang tidak ditemukan\033[0m")
         return
 
-    # Loop tiap barang yang ditemukan
+    # Normalisasi hasil jadi list
+    if isinstance(items, InventoryItem):
+        items = [items]
+
+    # Loop tiap barang untuk konfirmasi stok
     for item in items:
         qty_real = input_int(f"Jumlah aktual hasil cek untuk {item.name}: ", min_val=0)
 
         # Ambil data lama
         old_data = store.warehouses[wh_id].stock.get(item.item_id, {})
         old_qty = old_data.get("qty", 0)
-        old_status = old_data.get("status", "Baik")
+        old_status = old_data.get("status", "Pending")
 
-        # Update stok gudang (selalu dictionary)
+        # Update stok gudang
         store.warehouses[wh_id].stock[item.item_id] = {
             "qty": qty_real,
-            "status": old_status
-        }
+            "status": old_status}
 
-        # Sinkronisasi ke inventaris (stok siap jual)
+        # Sinkronisasi ke inventaris
         store.inventory[item.item_id].confirmed_stock = qty_real
 
         # Catat log
         log_warehouse(
             "Konfirmasi Stok Gudang",
             item.item_id,
-            extra={"warehouse": wh_id, "old_qty": old_qty, "new_qty": qty_real}
-        )
+            extra={"warehouse": wh_id, "old_qty": old_qty, "new_qty": qty_real})
 
-        print(f"\033[32mStok {item.name} di {wh_id} dikonfirmasi: {qty_real} unit\033[0m")
+        print(f"\n\033[32mStok {item.name} di {wh_id} dikonfirmasi: {qty_real} unit\033[0m")
 
 def print_stock_per_warehouse(wh_id=None):
     print("\n\033[34m>> STOK PER GUDANG:\033[0m")
@@ -380,28 +394,41 @@ def print_stock_per_warehouse(wh_id=None):
         if not w.stock:
             print("\033[31m- KOSONG -\033[0m")
         else:
-            # Header tabel
-            print(f"{'ID':<8} | {'Nama':<20} | {'Jumlah':<6} | {'Status':<12}")
-            print("-"*55)
-            # Isi tabel
+            print(f"{'ID':<8} | {'Nama':<20} | {'Jumlah':<6} | {'Harga Beli':<12} | {'Kategori':<15} | {'Kondisi':<12}")
+            print("-"*85)
             for item_id, data in w.stock.items():
                 item = store.inventory.get(item_id)
-                nama = item.name if item else "Unknown"
+                if not item:
+                    nama, harga, kategori = "Unknown", "-", "-"
+                else:
+                    nama, harga, kategori = item.name, f"Rp {item.price:,}", KATEGORI_LIST.get(str(item.category), item.category)
+
                 qty = data.get("qty", 0)
-                status = data.get("status", "Baik")
-                print(f"{item_id:<8} | {nama:<20} | {qty:<6} | {status:<12}")
+                status = data.get("status") or getattr(item, "status", "Pending")
+                # Warna status
+                if status.lower() == "baik":
+                    status_colored = f"\033[32m{status}\033[0m"
+                elif status.lower() == "pending":
+                    status_colored = f"\033[33m{status}\033[0m"
+                else:
+                    status_colored = f"\033[31m{status}\033[0m"
+                print(f"{item_id:<8} | {nama:<20} | {qty:<6} | {harga:<12} | {kategori:<15} | {status_colored:<12}")
 
 def print_warehouses():
     print("\n\033[34m>> DAFTAR GUDANG:\033[0m")
     if not store.warehouses:
-        print("\033[31m- KOSONG -\033[0m")
+        print("\n\033[31m- KOSONG -\033[0m")
         return
+
     # Header tabel
     print(f"{'ID':<8} | {'Nama Gudang':<20} | {'Alamat':<30}")
     print("-"*65)
+
     # Isi tabel
+    default_wh = getattr(store, "default_warehouse", "WH01")
     for w in store.warehouses.values():
-        print(f"{w.warehouse_id:<8} | {w.name:<20} | {w.address:<30}")
+        mark = " *DEFAULT*" if w.warehouse_id == default_wh else ""
+        print(f"{w.warehouse_id:<8} | {w.name:<20} | {w.address:<30}{mark}")
 
 # Akses & Role
 def check_access(required_role):
@@ -2424,11 +2451,11 @@ def dashboard_gudang():
 
 ''' MENUS '''
 # >> Module menus
-# INVENTARIS (clear v.3.7)
+# INVENTARIS (clear v.4.2.12)
 def inventory_menu():
     global current_role
     while True:
-        # Bagian karyawan
+        # Karyawan Gudang
         if current_role == "gudang":
             ops = {
                 "1": "Daftar Inventaris",
@@ -2453,6 +2480,7 @@ def inventory_menu():
                 category_code = pilih_kategori()
                 item_id = store.gen_id("INV")
 
+                # Simpan ke inventaris
                 store.inventory[item_id] = InventoryItem(
                     item_id=item_id,
                     name=name,
@@ -2460,9 +2488,23 @@ def inventory_menu():
                     category=category_code)
                 store.inventory[item_id].confirmed_stock = jumlah
 
+                # integrasi gudang pusat
+                default_wh = getattr(store, "default_warehouse", "WH01")
+                if default_wh not in store.warehouses:
+                    store.warehouses[default_wh] = Warehouse(default_wh, "Gudang Utama")
+
+                store.warehouses[default_wh].stock[item_id] = {
+                    "qty": jumlah,
+                    "status": "Pending",
+                    "price": harga_beli,
+                    "category": category_code}
+
+                log_warehouse("Barang Masuk Gudang", item_id, extra={"warehouse": default_wh, "qty": jumlah, "price": harga_beli})
+                print(f"\n\033[32mBarang {name} otomatis ditambahkan ke gudang {default_wh}\033[0m")
+
+                # Log inventaris
                 log_inventory("Tambah Barang", store.inventory[item_id], {"jumlah": jumlah, "harga": harga_beli, "kategori": category_code, "status": "Pending"})
                 log_employee_action(current_user, current_role, "Tambah Barang", {"item": name, "qty": jumlah})
-                print(f"\n\033[32mBarang {name} ditambahkan ke gudang\033[0m")
             # Ubah/Hapus Barang
             elif choice == "3":
                 print_inventory()
@@ -2471,7 +2513,6 @@ def inventory_menu():
                 if not items:
                     print(f"\n\033[31mBarang {item_query} tidak ditemukan\033[0m")
                     continue
-                # Sub menu Ubah
                 for item in items:
                     ops_edit = {
                         "1": "Ubah Harga",
@@ -2481,14 +2522,16 @@ def inventory_menu():
                         "5": "Ubah Kategori",
                         "6": "Hapus Barang"}
                     sub_choice = input_menu(f"Perubahan Data Barang {item.item_id} | {item.name}", ops_edit)
-                    # ubah harga
+
+                    # Ubah harga
                     if sub_choice == "1":
                         price = input_int(f"\nHarga baru untuk {item.name}: ", min_val=1)
                         old_price = item.price
                         item.price = price
                         log_inventory("Perubahan Harga Barang", item, {"changes": {"price": [old_price, price]}})
                         print(f"\n\033[32mHarga {item.name} diperbarui dari Rp{old_price:,} ke Rp{price:,}\033[0m")
-                    # ubah kondisi
+
+                    # Ubah kondisi
                     elif sub_choice == "2":
                         kondisi_ops = {"1": "Rusak", "2": "Hilang", "3": "Kadaluarsa"}
                         kondisi_choice = input_menu("Pilih kondisi", kondisi_ops)
@@ -2496,28 +2539,32 @@ def inventory_menu():
                         item.status = kondisi_ops.get(kondisi_choice, "Pending")
                         log_inventory("Perubahan Kondisi Barang", item, {"changes": {"status": [old_status, item.status]}})
                         print(f"\n\033[32mBarang {item.name} sekarang berstatus {item.status}\033[0m")
-                    # ubah stok
+
+                    # Ubah stok
                     elif sub_choice == "3":
                         stok_baru = input_int(f"Stok baru untuk {item.name}: ", min_val=0)
                         old_stok = item.confirmed_stock
                         item.confirmed_stock = stok_baru
                         log_inventory("Perubahan Stok Barang", item, {"changes": {"stok": [old_stok, stok_baru]}})
                         print(f"\n\033[32mStok {item.name} diperbarui dari {old_stok} ke {stok_baru}\033[0m")
-                    # ubah nama
+
+                    # Ubah nama
                     elif sub_choice == "4":
                         new_name = input(f"\nNama baru \033[33m{item.name}\033[0m: ").strip()
                         old_name = item.name
                         item.name = new_name
                         log_inventory("Perubahan Nama Barang", item, {"changes": {"name": [old_name, new_name]}})
                         print(f"\n\033[32mNama barang {old_name} diubah menjadi {new_name}\033[0m")
-                    # ubah kategori
+
+                    # Ubah kategori
                     elif sub_choice == "5":
                         new_category = pilih_kategori()
                         old_category = item.category
                         item.category = new_category
                         log_inventory("Perubahan Kategori Barang", item, {"changes": {"category": [old_category, new_category]}})
                         print(f"\n\033[32mKategori barang {item.name} diubah dari {old_category} ke {new_category}\033[0m")
-                    # hapus brng
+
+                    # Hapus barang
                     elif sub_choice == "6":
                         log_inventory("Penghapusan Barang", item, {"price": item.price, "reason": "Hapus Barang"}, filename="inventory_deletions.txt")
                         del store.inventory[item.item_id]
@@ -2532,7 +2579,6 @@ def inventory_menu():
                 if not items:
                     print(f"\n\033[31mBarang {item_query} tidak ditemukan\033[0m")
                     continue
-
                 for item in items:
                     request = {
                         "date": datetime.now().strftime("%Y-%m-%d"),
@@ -2553,99 +2599,146 @@ def inventory_menu():
                 "2": "Review Permintaan Konfirmasi",
                 "9": "Kembali"}
             choice = input_menu("MENU INVENTARIS (Admin)", ops)
-            if choice == "1": riwayat_barang()
-            elif choice == "2": review_requests()
+            if choice == "1":
+                riwayat_barang()
+            elif choice == "2":
+                review_requests()
             elif choice == "9":
                 return
 
-# GUDANG (clear v.4.1)
+# GUDANG (clear v.4.2.13)
 def warehouse_menu():
+    global current_role
     while True:
-        h = head("KELOLA GUDANG")
-        ops = {
-            "1": "Daftar gudang",
-            "2": "Tambah gudang",
-            "3": "Mutasi stok",
-            "4": "Konfirmasi status barang",
-            "5": "Konfirmasi stok barang",
-            "6": "Lihat stok per gudang",
-            "0": "Kembali"}
-        choice = input_menu("Menu Gudang", ops)
+        # Karyawan gudang
+        if current_role == "gudang":
+            h = head("MENU GUDANG (Karyawan Gudang)")
+            ops = {
+                "1": "Mutasi stok",
+                "2": "Konfirmasi kondisi barang",
+                "3": "Konfirmasi audit jumlah barang",
+                "4": "Lihat stok per gudang",
+                "9": "Kembali"}
+            choice = input_menu("Menu Gudang (Karyawan)", ops)
+            # Mutasi stok antar gudang
+            if choice == "1":
+                print_inventory()
+                item_query = input("\nID/Nama barang (gunakan koma): ").strip()
+                items = find_item(item_query)
+                if not items:
+                    print("\n\033[31mBarang tidak ditemukan\033[0m")
+                    continue
 
-        # Daftar gudang
-        if choice == "1":
-            print_warehouses()
-            pause()
-        # Tambah gudang
-        elif choice == "2":
-            name = input("\nNama gudang: ").strip()
-            address = input("Alamat gudang: ").strip()
-            add_warehouse(name, address)
+                from_wh = input("Gudang asal (ID): ").strip().upper()
+                to_wh = input("Gudang tujuan (ID): ").strip().upper()
+                qty = input_int("Jumlah transfer: ", min_val=1)
 
-            log_warehouse("Tambah Gudang", item_id="N/A", extra={"name": name, "address": address})
-            print(f"\n\033[32mGudang {name} berhasil ditambahkan\033[0m")
-        # Mutasi stok
-        elif choice == "3":
-            if not check_access("gudang"):
-                return
-            print_inventory()
-            item_query = input("\nID/Nama barang (gunakan koma): ").strip()
-            items = find_item(item_query)
-            if not items:
-                print("\n\033[31mBarang tidak ditemukan\033[0m")
-                continue
+                for item in items:
+                    if store.warehouses[from_wh].stock.get(item.item_id, {}).get("qty", 0) < qty:
+                        print(f"\033[31mStok {item.name} di gudang asal tidak cukup\033[0m")
+                    else:
+                        transfer_stock(item.item_id, from_wh, to_wh, qty)
+                        log_warehouse("Mutasi Stok", item.item_id, from_wh=from_wh, to_wh=to_wh, qty=qty)
+                        log_employee_action(current_user, current_role, "Mutasi Stok", {"item": item.name, "from": from_wh, "to": to_wh, "qty": qty})
+                        print(f"\033[32m{qty} unit {item.name} dipindahkan dari {from_wh} ke {to_wh}\033[0m")
+            # Konfirmasi status fisik barang
+            elif choice == "2":
+                print_warehouses()
+                wh_input = input("\nID/Nama Gudang: ").strip()
+                warehouse = find_warehouse(wh_input)
+                if not warehouse:
+                    print("\033[31mGudang tidak ditemukan\033[0m")
+                    continue
+                wh_id = warehouse.warehouse_id
 
-            from_wh = input("Gudang asal (ID): ").strip().upper()
-            to_wh = input("Gudang tujuan (ID): ").strip().upper()
-            qty = input_int("Jumlah transfer: ", min_val=1)
+                # tampilkan stok gudang, bukan inventaris global
+                print_stock_per_warehouse(wh_id)
 
-            for item in items:
-                if store.warehouses[from_wh].stock.get(item.item_id, {}).get("qty", 0) < qty:
-                    print(f"\033[31mStok {item.name} di gudang asal tidak cukup\033[0m")
+                item_query = input("\nID/Nama barang (gunakan koma): ").strip()
+                items = find_item(item_query, warehouse_id=wh_id)  # filter sesuai gudang
+                if not items:
+                    print("\n\033[31mBarang tidak ditemukan\033[0m")
+                    continue
+                if isinstance(items, InventoryItem):
+                    items = [items]
+
+                status_ops = {"1": "Baik", "2": "Rusak", "3": "Hilang", "4": "Kadaluarsa"}
+                status_choice = input_menu("Konfirmasi kondisi fisik", status_ops)
+                new_status = status_ops.get(status_choice, "Pending")
+
+                for item in items:
+                    old_status = store.warehouses[wh_id].stock.get(item.item_id, {}).get("status", "Pending")
+                    if item.item_id in store.warehouses[wh_id].stock:
+                        store.warehouses[wh_id].stock[item.item_id]["status"] = new_status
+                    item.status = new_status
+
+                    log_warehouse("Konfirmasi Status Barang", item.item_id, extra={"warehouse": wh_id, "old_status": old_status, "new_status": new_status})
+                    print(f"\033[32mBarang {item.item_id} ({item.name}) di {warehouse.name} sekarang berkondisi {new_status}\033[0m")
+            # Konfirmasi stok (audit jumlah)
+            elif choice == "3": konfirmasi_stok_gudang()
+            # Lihat stok per gudang
+            elif choice == "4":
+                # Tampilkan daftar gudang dulu
+                print_warehouses()
+                wh_input = input("\nID/Nama gudang (kosong = semua): ").strip()
+                if not wh_input:
+                    print_stock_per_warehouse()
                 else:
-                    transfer_stock(item.item_id, from_wh, to_wh, qty)
-                    log_warehouse("Mutasi Stok", item.item_id, from_wh=from_wh, to_wh=to_wh, qty=qty)
-                    log_employee_action(current_user, current_role, "Mutasi Stok", {"item": item.name, "from": from_wh, "to": to_wh, "qty": qty})
-                    print(f"\033[32m{qty} unit {item.name} dipindahkan dari {from_wh} ke {to_wh}\033[0m")
-        # Konfirmasi status (fisik)
-        elif choice == "4":
-            print_inventory()
-            item_query = input("\nID/Nama barang (gunakan koma): ").strip()
-            items = find_item(item_query)
-            if not items:
-                print("\n\033[31mBarang tidak ditemukan\033[0m")
-                continue
-
-            wh_id = input("\nID Gudang: ").strip().upper()
-            if wh_id not in store.warehouses:
-                print("\n\033[31mGudang tidak ditemukan\033[0m")
-                continue
-
-            status_ops = {
-                "1": "Baik",
-                "2": "Rusak",
-                "3": "Hilang",
-                "4": "Kadaluarsa"}
-            status_choice = input_menu("Konfirmasi kondisi fisik", status_ops)
-            new_status = status_ops.get(status_choice, "Baik")
-
-            for item in items:
-                old_status = store.warehouses[wh_id].stock.get(item.item_id, {}).get("status", "Baik")
-                if item.item_id in store.warehouses[wh_id].stock:
-                    store.warehouses[wh_id].stock[item.item_id]["status"] = new_status
-                item.status = new_status  # update juga di inventaris
-
-                log_warehouse("Konfirmasi Status Barang", item.item_id, extra={"warehouse": wh_id, "old_status": old_status, "new_status": new_status})
-                print(f"\033[32mBarang {item.item_id} ({item.name}) di {wh_id} sekarang berkondisi {new_status}\033[0m")
-        # Konfirmasi stok (audit jumlah)
-        elif choice == "5": konfirmasi_stok_gudang()
-        # Lihat stok per gudang
-        elif choice == "6":
-            wh_id = input("Masukkan ID gudang (kosong = semua): ").strip().upper()
-            print_stock_per_warehouse(wh_id)
-            pause()
-        elif choice == "0":
-            return
+                    warehouse = find_warehouse(wh_input)
+                    if not warehouse:
+                        print("\n\033[31mGudang tidak ditemukan\033[0m")
+                    else:
+                        print_stock_per_warehouse(warehouse.warehouse_id)
+                pause()
+            elif choice == "9":
+                return
+        # bagian admin
+        elif current_role == "admin":
+            h = head("MENU GUDANG (Admin)")
+            ops = {
+                "1": "Daftar gudang",
+                "2": "Tambah gudang",
+                "3": "Set Default Gudang",
+                "4": "Lihat stok per gudang",
+                "9": "Kembali"}
+            choice = input_menu("Menu Gudang (Admin)", ops)
+            # Daftar gudang
+            if choice == "1":
+                print_warehouses()
+                pause()
+            # Tambah gudang
+            elif choice == "2":
+                name = input("\nNama gudang: ").strip()
+                address = input("Alamat gudang: ").strip()
+                add_warehouse(name, address)
+                log_warehouse("Tambah Gudang", item_id="N/A", extra={"name": name, "address": address})
+                print(f"\n\033[32mGudang {name} berhasil ditambahkan\033[0m")
+            # Set default gudang
+            elif choice == "3":
+                print_warehouses()
+                wh_input = input("\nID/Nama gudang yang ingin dijadikan default: ").strip()
+                warehouse = find_warehouse(wh_input)
+                if not warehouse:
+                    print("\033[31mGudang tidak ditemukan\033[0m")
+                else:
+                    store.default_warehouse = warehouse.warehouse_id
+                    log_warehouse("Set Default Gudang", item_id="N/A", extra={"default": warehouse.warehouse_id})
+                    print(f"\n\033[32mGudang {warehouse.name} ({warehouse.warehouse_id}) sekarang menjadi gudang default\033[0m")
+            # Lihat stok per gudang
+            elif choice == "4":
+                print_warehouses()
+                wh_input = input("\nID/Nama gudang (kosong = semua): ").strip()
+                if not wh_input:
+                    print_stock_per_warehouse()
+                else:
+                    warehouse = find_warehouse(wh_input)
+                    if not warehouse:
+                        print("\n\033[31mGudang tidak ditemukan\033[0m")
+                    else:
+                        print_stock_per_warehouse(warehouse.warehouse_id)
+                pause()
+            elif choice == "9":
+                return
 
 # KARYAWAN (clear v.4.1.3)
 def employee_menu():
