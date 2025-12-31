@@ -612,40 +612,6 @@ def show_inventory_log(filename="inventory_log.txt"):
             print(f"{record['date']} | {record['name']} | Jumlah: {record.get('jumlah','')} | "
                 f"Harga: {record.get('harga','')} | Kategori: {kategori_text}")
 
-def riwayat_rental_semua():
-    print("\n\033[34m>> Riwayat Rental\033[0m")
-    if not store.rentals:
-        print("\n\033[33m- KOSONG -\033[0m")
-        return
-
-    # Header tabel
-    print(f"{'No':<4} | {'Customer':<20} | {'Lokomotif':<20} | {'Durasi':<10} | {'Total':<15} | {'Officer':<12}")
-    print("-"*90)
-
-    # Isi tabel
-    for idx, r in enumerate(store.rentals, 1):
-        lok = store.lokomotif.get(r.lokomotif_id)
-        nama_lok = lok.name if lok else r.lokomotif_id
-        print(f"{idx:<4} | {r.customer:<20} | {nama_lok:<20} | {str(r.days)+' hari':<10} | "
-            f"{format_rupiah(r.total_fee):<15} | {r.officer:<12}")
-
-def riwayat_rental_sendiri():
-    print("\n\033[34m>> Riwayat Rental (Anda)\033[0m")
-    found = False
-    # Header tabel
-    print(f"{'No':<4} | {'Customer':<20} | {'Lokomotif':<20} | {'Durasi':<10} | {'Total':<15}")
-    print("-"*75)
-
-    for idx, r in enumerate(store.rentals, 1):
-        if r.officer == current_user:
-            found = True
-            lok = store.lokomotif.get(r.lokomotif_id)
-            nama_lok = lok.name if lok else r.lokomotif_id
-            print(f"{idx:<4} | {r.customer:<20} | {nama_lok:<20} | {str(r.days)+' hari':<10} | {format_rupiah(r.total_fee):<15}")
-
-    if not found:
-        print("\n\033[33mBelum ada rental oleh Anda\033[0m")
-
 def tampilkan_riwayat_semua():
     print("\n\033[34m>> Riwayat Penjualan\033[0m")
     if not store.sales:
@@ -773,77 +739,6 @@ def transaksi_penjualan():
     print(f"{'TOTAL':<12} {'':<25} {'':<5} {'':<15} {format_rupiah(total):<15}")
     print("="*80)
     print(f"Metode Bayar: {payment_method} | Gudang: {wh_id}")
-
-def mulai_rental():
-    lok_id = input("\nID Lokomotif/Alat: ").strip().upper()
-    lok = store.lokomotif.get(lok_id)
-    if not lok or lok.status != "Tersedia":
-        print("\n\033[31mTidak tersedia untuk rental\033[0m")
-        return
-    customer = input("Nama customer: ").strip()
-    days = input_int("Durasi (hari): ", min_val=1)
-
-    total_fee = lok.rate_per_day * days
-    start_date = datetime.now()
-    end_date = start_date + timedelta(days=days)
-    lok.status = "Disewa"
-
-    record = RentalRecord(
-        lokomotif_id=lok_id, customer=customer, days=days, total_fee=total_fee,
-        start_date=start_date.strftime("%Y-%m-%d (%H:%M)"), end_date=end_date.strftime("%Y-%m-%d (%H:%M)"), officer=current_user)
-    store.rentals.append(record)
-    # Catat ke file
-    with open("rentals.txt", "a") as f:
-        f.write(json.dumps(record.__dict__) + "\n")
-    # Integrasi ke penjualan
-    sale_id = store.gen_id("SALE")
-    store.sales[sale_id] = {
-        "type": "rental",
-        "ref": lok_id,
-        "amount": total_fee,
-        "date": record.start_date}
-    log_sale("rental", lok_id, total_fee, {"customer": customer, "days": days})
-    # catat aktivitas karyawan dengan alasan
-    log_employee_action(current_user, current_role, "Mulai Rental", {"lok_id": lok_id, "customer": customer, "days": days, "total_fee": total_fee, "reason": "Customer menyewa unit"})
-    tampilkan_nota_rental(record)
-
-def selesai_rental():
-    if not store.rentals:
-        print("\n\033[33mBelum ada transaksi rental\033[0m")
-        return
-
-    print("\n\033[34m>> Transaksi Rental Aktif:\033[0m")
-    # Header tabel
-    print(f"{'No':<4} | {'Customer':<20} | {'Lokomotif':<20} | {'Durasi':<10} | {'Total':<15} | {'Officer':<12} | {'Status':<10}")
-    print("-"*100)
-
-    for idx, r in enumerate(store.rentals, 1):
-        lok = store.lokomotif.get(r.lokomotif_id)
-        nama_lok = lok.name if lok else r.lokomotif_id
-        status = "\033[33mDisewa\033[0m" if lok and lok.status == "Disewa" else "\033[32mSelesai\033[0m"
-        print(f"{idx:<4} | {r.customer:<20} | {nama_lok:<20} | {str(r.days)+' hari':<10} | {format_rupiah(r.total_fee):<15} | {r.officer:<12} | {status:<10}")
-
-    idx_choice = input_int("Pilih nomor transaksi yang selesai (0=keluar): ", min_val=0)
-    if idx_choice == 0:
-        return
-    if idx_choice > len(store.rentals):
-        print("\n\033[31mNomor tidak valid\033[0m")
-        return
-
-    r = store.rentals[idx_choice - 1]
-    # Role check
-    if current_role != "admin" and r.officer != current_user:
-        print("\n\033[31mAnda tidak berhak menyelesaikan rental milik orang lain\033[0m")
-        return
-    # Update status lokomotif
-    if r.lokomotif_id in store.lokomotif:
-        store.lokomotif[r.lokomotif_id].status = "Selesai"
-    # Logging
-    log_sale("rental selesai", r.lokomotif_id, r.total_fee, {"customer": r.customer})
-    log_employee_action(current_user, current_role, "Selesaikan Rental", {"lok_id": r.lokomotif_id, "customer": r.customer, "reason": "Rental selesai sesuai durasi"})
-
-    print("\n\033[32mRental ditandai selesai. Status lokomotif diperbarui ke 'Selesai'\033[0m")
-    tampilkan_nota_rental(r)
 
 def print_sales_history_barang(sales_list):
     print("\n\033[34m>> RIWAYAT PENJUALAN BARANG:\033[0m")
@@ -1111,6 +1006,12 @@ def tampilkan_nota_rental(record):
     print(f"Tgl Selesai   : {record.end_date}")
     print(f"Total Biaya   : {format_rupiah(record.total_fee)}")
     print(f"Officer       : {record.officer}")
+    # cek status lokomotif
+    lok = store.lokomotif.get(record.lokomotif_id)
+    if lok and lok.status == "Disewa":
+        print("Status        : \033[33mDisewa\033[0m")
+    else:
+        print("Status        : \033[32mSelesai\033[0m")
 
 # Dashboard & Statistik
 def top_items(counter: dict, label: str, unit: str = ""):
@@ -1284,7 +1185,7 @@ class Store:
         self.employees: Dict[str, Employee] = {}
         self.lokomotif: Dict[str, Lokomotif] = {}
         self.menu: Dict[str, MenuItem] = {}
-        self.sales: List[Sale] = []
+        self.sales: Dict[str, Sale] = {}
         self.services: List[ServiceRecord] = []
         self.food_orders: List[FoodOrder] = []
         self.warehouses: Dict[str, Warehouse] = {}
@@ -2110,16 +2011,15 @@ def hapus_edit_rental():
         return
 
     print("\n\033[34m>> Daftar Transaksi Rental:\033[0m")
-    # Header tabel
     print(f"{'No':<4} | {'Customer':<20} | {'Lokomotif':<20} | {'Durasi':<10} | {'Total':<15} | {'Officer':<12} | {'Status':<10}")
     print("-"*100)
-    # Isi tabel
+
     for idx, r in enumerate(store.rentals, 1):
         lok = store.lokomotif.get(r.lokomotif_id)
         nama_lok = lok.name if lok else r.lokomotif_id
         status = "Disewa" if lok and lok.status == "Disewa" else "Selesai"
         print(f"{idx:<4} | {r.customer:<20} | {nama_lok:<20} | {str(r.days)+' hari':<10} | {format_rupiah(r.total_fee):<15} | {r.officer:<12} | {status:<10}")
-    # Pilih transaksi
+
     idx_choice = input_int("\nPilih nomor transaksi untuk hapus/edit (0=keluar): ", min_val=0)
     if idx_choice == 0:
         return
@@ -2129,19 +2029,30 @@ def hapus_edit_rental():
 
     r = store.rentals[idx_choice - 1]
     action = input("\nHapus atau Edit? (h/e): ").strip().lower()
+
     if action == "h":
+        # Jika masih disewa, kembalikan status lokomotif ke 'Tersedia'
+        if r.lokomotif_id in store.lokomotif and store.lokomotif[r.lokomotif_id].status == "Disewa":
+            store.lokomotif[r.lokomotif_id].status = "Tersedia"
+
         store.rentals.remove(r)
-        log_employee_action(current_user, current_role, "Hapus Rental", {"lok_id": r.lokomotif_id, "reason": "Koreksi admin"})
+        log_employee_action(current_user, current_role, "Hapus Rental", {"lok_id": r.lokomotif_id, "customer": r.customer, "reason": "Koreksi admin"})
         print(f"\n\033[32mRental {r.lokomotif_id} berhasil dihapus\033[0m")
+
     elif action == "e":
+        old_days = r.days
+        old_customer = r.customer
+
         new_days = input("Durasi baru (kosong=tidak ubah): ").strip()
-        if new_days.isdigit():
+        if new_days.isdigit() and int(new_days) > 0:
             r.days = int(new_days)
             r.total_fee = r.days * store.lokomotif[r.lokomotif_id].rate_per_day
-        new_customer = input("Nama customer baru (kosong=tidak ubah): ").strip()
-        if new_customer: r.customer = new_customer
 
-        log_employee_action(current_user, current_role, "Edit Rental", {"lok_id": r.lokomotif_id, "reason": "Perubahan admin"})
+        new_customer = input("Nama customer baru (kosong=tidak ubah): ").strip()
+        if new_customer:
+            r.customer = new_customer
+
+        log_employee_action(current_user, current_role, "Edit Rental", {"lok_id": r.lokomotif_id, "old_days": old_days, "new_days": r.days, "old_customer": old_customer, "new_customer": r.customer, "reason": "Perubahan admin"})
         print(f"\n\033[32mRental {r.lokomotif_id} berhasil diedit\033[0m")
 
 ''' DASHBOARDS '''
@@ -3108,12 +3019,11 @@ def service_menu():
         elif p == "0":
             return
 
-# Rental (clear v.4.2.8)
+# Rental (clear v.4.2.14)
 def rental_menu():
     while True:
         h = head("KELOLA RENTAL LOKOMOTIF/ALAT")
 
-        # Menu berbeda sesuai role
         if current_role == "admin":
             ops = {
                 "1": "Lihat Lokomotif/Alat",
@@ -3122,7 +3032,7 @@ def rental_menu():
                 "4": "Riwayat Rental",
                 "5": "Hapus/Edit Rental",
                 "0": "Kembali"}
-        else:  # karyawan rental 
+        else:  # karyawan rental
             ops = {
                 "1": "Lihat Lokomotif/Alat",
                 "2": "Mulai Rental",
@@ -3131,28 +3041,172 @@ def rental_menu():
                 "0": "Kembali"}
 
         p = input_menu("Data Rental", ops)
-        # Data Lokomotif/alat
+        # Lihat Lokomotif/Alat
         if p == "1":
             print("\n\033[34m>> Daftar Lokomotif/Alat:\033[0m")
-            print("="*80)
-            print(f"{'ID':<10} {'Nama':<25} {'Status':<15} {'Tarif/Hari':>15}")
-            print("="*80)
-            for lok in store.lokomotif.values():
-                print(f"{lok.id:<10} {lok.name:<25} {lok.status:<15} {format_rupiah(lok.rate_per_day):>15}")
-            print("="*80)
+            if current_role == "admin":
+                print(f"{'ID':<10} | {'Nama':<25} | {'Status':<15} | {'Tarif/Hari':<15}")
+                print("-"*75)
+                for lok in store.lokomotif.values():
+                    print(f"{lok.id:<10} | {lok.name:<25} | {lok.status:<15} | {format_rupiah(lok.rate_per_day):<15}")
+            else:  # karyawan tidak lihat ID
+                print(f"{'Nama':<25} | {'Status':<15} | {'Tarif/Hari':<15}")
+                print("-"*60)
+                for lok in store.lokomotif.values():
+                    print(f"{lok.name:<25} | {lok.status:<15} | {format_rupiah(lok.rate_per_day):<15}")
             pause()
-        # Mulai
-        elif p == "2": mulai_rental()
-        # Selesai
-        elif p == "3": selesai_rental()
+
+        # Mulai Rental
+        elif p == "2":
+            print("\n\033[34m>> Daftar Lokomotif/Alat:\033[0m")
+            if current_role == "admin":
+                print(f"{'ID':<10} | {'Nama':<25} | {'Status':<15} | {'Tarif/Hari':<15}")
+                print("-"*75)
+                for lok in store.lokomotif.values():
+                    print(f"{lok.id:<10} | {lok.name:<25} | {lok.status:<15} | {format_rupiah(lok.rate_per_day):<15}")
+                wh_input = input("\nMasukkan ID/Nama Lokomotif/Alat: ").strip()
+                # admin bisa pakai ID atau nama
+                lok = store.lokomotif.get(wh_input.upper())
+                if not lok:
+                    # cari berdasarkan nama
+                    for l in store.lokomotif.values():
+                        if l.name.lower() == wh_input.lower():
+                            lok = l
+                            break
+            else:  # karyawan
+                print(f"{'Nama':<25} | {'Status':<15} | {'Tarif/Hari':<15}")
+                print("-"*60)
+                for lok in store.lokomotif.values():
+                    print(f"{lok.name:<25} | {lok.status:<15} | {format_rupiah(lok.rate_per_day):<15}")
+                wh_input = input("\nMasukkan Nama Lokomotif/Alat: ").strip()
+                lok = None
+                for l in store.lokomotif.values():
+                    if l.name.lower() == wh_input.lower():
+                        lok = l
+                        break
+
+            if not lok or lok.status != "Tersedia":
+                print("\n\033[31mTidak tersedia untuk rental\033[0m")
+                return
+
+            customer = input("Nama customer: ").strip()
+            days = input_int("Durasi (hari): ", min_val=1)
+
+            total_fee = lok.rate_per_day * days
+            start_date = datetime.now()
+            end_date = start_date + timedelta(days=days)
+            lok.status = "Disewa"
+
+            record = RentalRecord(
+                lokomotif_id=lok.id, customer=customer, days=days, total_fee=total_fee,
+                start_date=start_date.strftime("%Y-%m-%d (%H:%M)"),
+                end_date=end_date.strftime("%Y-%m-%d (%H:%M)"),
+                officer=current_user)
+            store.rentals.append(record)
+
+            with open("rentals.txt", "a") as f:
+                f.write(json.dumps(record.__dict__) + "\n")
+
+            sale_id = store.gen_id("SALE")
+            store.sales[sale_id] = {
+                "type": "rental",
+                "ref": lok.id,
+                "amount": total_fee,
+                "date": record.start_date}
+            log_sale("rental", lok.id, total_fee, {"customer": customer, "days": days})
+            log_employee_action(current_user, current_role, "Mulai Rental", {"lok_id": lok.id, "customer": customer, "days": days, "total_fee": total_fee, "reason": "Customer menyewa unit"})
+            tampilkan_nota_rental(record)
+
+        # Selesaikan Rental
+        elif p == "3":
+            if not store.rentals:
+                print("\n\033[33mBelum ada transaksi rental\033[0m")
+                return
+            print("\n\033[34m>> Transaksi Rental Aktif:\033[0m")
+
+            # Filter sesuai role
+            if current_role == "admin":
+                rentals_to_show = store.rentals
+                # Header tabel untuk admin (lihat officer)
+                print(f"{'No':<4} | {'Customer':<20} | {'Lokomotif':<20} | {'Durasi':<10} | {'Total':<15} | {'Officer':<12} | {'Status':<10}")
+                print("-"*110)
+            else:
+                rentals_to_show = [r for r in store.rentals if r.officer == current_user]
+                # Header tabel untuk karyawan (tanpa officer)
+                print(f"{'No':<4} | {'Customer':<20} | {'Lokomotif':<20} | {'Durasi':<10} | {'Total':<15} | {'Status':<10}")
+                print("-"*90)
+
+            if not rentals_to_show:
+                print("\n\033[33mTidak ada rental aktif untuk Anda\033[0m")
+                return
+            # Cetak daftar sesuai role
+            for idx, r in enumerate(rentals_to_show, 1):
+                lok = store.lokomotif.get(r.lokomotif_id)
+                nama_lok = lok.name if lok else r.lokomotif_id
+                status = "\033[33mDisewa\033[0m" if lok and lok.status == "Disewa" else "\033[32mSelesai\033[0m"
+
+                if current_role == "admin":
+                    print(f"{idx:<4} | {r.customer:<20} | {nama_lok:<20} | {str(r.days)+' hari':<10} | {format_rupiah(r.total_fee):<15} | {r.officer:<12} | {status:<10}")
+                else:
+                    print(f"{idx:<4} | {r.customer:<20} | {nama_lok:<20} | {str(r.days)+' hari':<10} | {format_rupiah(r.total_fee):<15} | {status:<10}")
+
+            idx_choice = input_int("Pilih nomor transaksi yang selesai (0=keluar): ", min_val=0)
+            if idx_choice == 0:
+                return
+            if idx_choice > len(rentals_to_show):
+                print("\n\033[31mNomor tidak valid\033[0m")
+                return
+
+            r = rentals_to_show[idx_choice - 1]
+
+            # Update status lokomotif → lebih natural ke "Tersedia"
+            if r.lokomotif_id in store.lokomotif:
+                store.lokomotif[r.lokomotif_id].status = "Tersedia"
+
+            log_sale("rental selesai", r.lokomotif_id, r.total_fee, {"customer": r.customer})
+            log_employee_action(current_user, current_role, "Selesaikan Rental", {"lok_id": r.lokomotif_id, "customer": r.customer, "reason": "Rental selesai sesuai durasi"})
+
+            print("\n\033[32mRental ditandai selesai. Status lokomotif diperbarui ke 'Tersedia'\033[0m")
+            tampilkan_nota_rental(r)
+        
         # Riwayat
         elif p == "4":
             if current_role == "admin":
-                riwayat_rental_semua()
-            else:
-                riwayat_rental_sendiri()
-        # Hapus/ubah
-        elif p == "5" and current_role == "admin": hapus_edit_rental()
+                print("\n\033[34m>> Riwayat Rental\033[0m")
+                if not store.rentals:
+                    print("\n\033[33m- KOSONG -\033[0m")
+                    return
+                # Header tabel
+                print(f"{'No':<4} | {'Customer':<20} | {'Lokomotif':<20} | {'Durasi':<10} | {'Total':<15} | {'Officer':<12} | {'Status':<10}")
+                print("-"*105)
+                # Isi tabel
+                for idx, r in enumerate(store.rentals, 1):
+                    lok = store.lokomotif.get(r.lokomotif_id)
+                    nama_lok = lok.name if lok else r.lokomotif_id
+                    status = "\033[33mDisewa\033[0m" if lok and lok.status == "Disewa" else "\033[32mSelesai\033[0m"
+                    print(f"{idx:<4} | {r.customer:<20} | {nama_lok:<20} | {str(r.days)+' hari':<10} | "
+                        f"{format_rupiah(r.total_fee):<15} | {r.officer:<12} | {status:<10}")
+            else:  # Karyawan rental
+                print("\n\033[34m>> Riwayat Rental (Anda)\033[0m")
+                rentals_user = [r for r in store.rentals if r.officer == current_user]
+
+                if not rentals_user:
+                    print("\n\033[33mBelum ada rental oleh Anda\033[0m")
+                    return
+                # Header tabel 
+                print(f"{'No':<4} | {'Customer':<20} | {'Lokomotif':<20} | {'Durasi':<10} | {'Total':<15} | {'Status':<10}")
+                print("-"*90)
+                # Isi
+                for idx, r in enumerate(rentals_user, 1):
+                    lok = store.lokomotif.get(r.lokomotif_id)
+                    nama_lok = lok.name if lok else r.lokomotif_id
+                    status = "\033[33mDisewa\033[0m" if lok and lok.status == "Disewa" else "\033[32mSelesai\033[0m"
+                    print(f"{idx:<4} | {r.customer:<20} | {nama_lok:<20} | {str(r.days)+' hari':<10} | "
+                        f"{format_rupiah(r.total_fee):<15} | {status:<10}")
+
+        # Hapus/Edit Rental (khusus admin)
+        elif p == "5" and current_role == "admin":
+            hapus_edit_rental()
         elif p == "0":
             return
 
