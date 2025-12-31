@@ -1,14 +1,19 @@
 """
-Aplikasi       : ? (?) - Versi 4.3 (target max fix, MAJOR.MINOR.PATCH)
+Aplikasi       : ? (?) - Versi 4.3.0 (target max fix, MAJOR.MINOR.PATCH)
 Fitur          : Mengelola inventaris, karyawan, penjualan, service mobil, dan pemesanan makanan, semuanya terintegrasi dengan laporan ringkas di dashboard.
 Penulis        : 2840 & 2835
 Versi (update) : 4.2.14
 """
-import sys, time, ast, json, random, os
+import sys
+import time
+import ast
+import json
+import random
+import os
+
 from datetime import datetime, timedelta
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Tuple, Optional
-from dataclasses import asdict
 
 
 ''' DATA LAYER '''
@@ -765,15 +770,55 @@ def print_food_orders_history(food_orders):
     if not food_orders:
         print("\033[31m- KOSONG -\033[0m")
         return
-
     # Header tabel
     print(f"{'No':<4} | {'Tanggal':<16} | {'Waiter':<12} | {'Detail':<40} | {'Total':<15}")
     print("-"*100)
-
     # Isi tabel
     for idx, o in enumerate(food_orders, 1):
         detail = "; ".join(f"{store.menu[mid].name} x{qty}" for mid, qty in o.items)
         print(f"{idx:<4} | {o.date:<16} | {o.waiter:<12} | {detail:<40} | {format_rupiah(o.total):<15}")
+
+def laporan_detail():
+    head("LAPORAN DETAIL")
+    # Barang Terlaris
+    counter = {}
+    for s in store.sales.values():   # ambil objek Sale dari dict
+        for i, q in s.items:         # items = list of tuple (id, qty)
+            it = store.inventory.get(i)
+            key = it.name if it else f"[UNKNOWN:{i}]"
+            counter[key] = counter.get(key, 0) + q
+    top_items(counter, "Barang Terlaris", "unit")
+
+    # Lokomotif Terlaris
+    lokomotif_count = {}
+    for r in store.services:
+        lok = store.lokomotif.get(r.lokomotif_id)
+        if lok:
+            lokomotif_count[lok.name] = lokomotif_count.get(lok.name, 0) + 1
+    top_items(lokomotif_count, "Lokomotif Terlaris", "kali diservis")
+
+    # Menu Favorit
+    food_count = {}
+    for o in store.food_orders:
+        for i, q in o.items:
+            m = store.menu.get(i)
+            key = m.name if m else f"[UNKNOWN:{i}]"
+            food_count[key] = food_count.get(key, 0) + q
+    top_items(food_count, "Menu Favorit", "porsi")
+
+    # Laporan Karyawan & Akun
+    print("\n\033[34m>> Laporan Karyawan & Akun\033[0m")
+    print(f"{'Emp.ID':<8} | {'Nama':<20} | {'Jabatan':<10} | {'Username':<15} | {'Role Akun':<10} | {'Status':<10}")
+    print("-"*85)
+    for emp_id, emp in store.employees.items():
+        username = "-"
+        role_akun = "-"
+        for uname, udata in users.items():
+            if udata["employee_id"] == emp_id:
+                username = uname
+                role_akun = udata.get("role", "-")
+                break
+        print(f"{emp.id:<8} | {emp.name:<20} | {emp.role:<10} | {username:<15} | {role_akun:<10} | {emp.status:<10}")
 
 # Karyawan
 def print_employees():
@@ -904,8 +949,7 @@ def proses_pembayaran_makanan(customer_name: str, table_number: str, cart: List[
         date=datetime.now().strftime("%Y-%m-%d (%H:%M)"),
         waiter=current_user,
         customer_name=customer_name,
-        table_number=table_number
-    )
+        table_number=table_number)
     store.food_orders.append(order)
 
     # Kurangi stok menu makanan
@@ -923,9 +967,10 @@ def proses_pembayaran_makanan(customer_name: str, table_number: str, cart: List[
         items=cart,
         total=total,
         date=order.date,
-        cashier=current_user
-    )
-    store.sales.append(sale)
+        cashier=current_user)
+
+    # simpan ke dict, bukan append
+    store.sales[sale_id] = sale
 
     # Simpan ke file sales.txt
     with open("sales.txt", "a") as f:
@@ -986,9 +1031,9 @@ def tampilkan_nota_makanan(order: "FoodOrder", store: "Store"):
         item = store.menu.get(mid)
         if item:
             subtotal = item.price * qty
-            detail_lines.append(f"{item.name}       x{qty} = {format_rupiah(subtotal)}")
+            detail_lines.append(f"{item.name} x{qty} = {format_rupiah(subtotal)}")
         else:
-            detail_lines.append(f"{mid}     x{qty}")
+            detail_lines.append(f"{mid} x{qty}")
 
     print("Pesanan       :")
     for line in detail_lines:
@@ -1691,9 +1736,9 @@ def load_sales():
                         items=rec.get("items", []),
                         total=int(rec.get("total", rec.get("amount", 0))),
                         date=rec.get("date", "-"),
-                        cashier=rec.get("cashier", "-")
-                    )
-                    store.sales.append(sale)
+                        cashier=rec.get("cashier", "-"))
+                    # simpan ke dict dengan key sale_id
+                    store.sales[sale.sale_id] = sale
     except FileNotFoundError:
         pass
 
@@ -2056,16 +2101,15 @@ def hapus_edit_rental():
         print(f"\n\033[32mRental {r.lokomotif_id} berhasil diedit\033[0m")
 
 ''' DASHBOARDS '''
-# Dashboard hybrid uv.4.1
-# dashboard utama
+# Dashboard hybrid uv.4.2.14
 def dashboard():
-    total_sales = sum(s.total for s in store.sales)
+    total_sales   = sum(s.total for s in store.sales.values())
     total_service = sum(r.total_fee for r in store.services)
-    total_food = sum(o.total for o in store.food_orders)
-    total_rental = sum(r.total_fee for r in store.rentals)
-    grand_total = total_sales + total_service + total_food + total_rental
+    total_food    = sum(o.total for o in store.food_orders)
+    total_rental  = sum(r.total_fee for r in store.rentals)
+    grand_total   = total_sales + total_service + total_food + total_rental
 
-    print("\n\033[44m=========== DASHBOARD ===========\033[0m")
+    print("\n\033[44m ============== DASHBOARD ============== \033[0m")
     print(f"{'Transaksi':<20} | {'Jumlah':<8} | {'Total':<15}")
     print("-"*50)
     print(f"{'Penjualan Barang':<20} | {len(store.sales):<8} | {format_rupiah(total_sales):<15}")
@@ -2081,12 +2125,11 @@ def dashboard():
     print(f"{'Lokomotif':<12}: {len(store.lokomotif)} unit")
     print(f"{'Menu':<12}: {len(store.menu)} item")
     print(f"{'Gudang':<12}: {len(store.warehouses)} lokasi")
-
     # Detail umum
     laporan_detail()
 # Admin
 def dashboard_admin():
-    print("\n\033[44m=========== DASHBOARD ADMIN ===========\033[0m")
+    print("\n\033[44m ============ DASHBOARD ADMIN ============ \033[0m")
 
     # Kondisi stok barang
     print("\n\033[34m>> Kondisi Stok Barang\033[0m")
@@ -2116,11 +2159,11 @@ def dashboard_admin():
         print("- Semua stok menu aman")
 
     # Ringkasan transaksi
-    total_sales = sum(s.total for s in store.sales)
+    total_sales   = sum(s.total for s in store.sales.values())
     total_service = sum(r.total_fee for r in store.services)
-    total_food = sum(o.total for o in store.food_orders)
-    total_rental = sum(r.total_fee for r in store.rentals)
-    grand_total = total_sales + total_service + total_food + total_rental
+    total_food    = sum(o.total for o in store.food_orders)
+    total_rental  = sum(r.total_fee for r in store.rentals)
+    grand_total   = total_sales + total_service + total_food + total_rental
 
     print("\n\033[34m>> Ringkasan Transaksi\033[0m")
     print(f"{'Jenis':<20} | {'Jumlah':<8} | {'Total':<15}")
@@ -2149,17 +2192,19 @@ def dashboard_admin():
         for uname, udata in users.items():
             if udata["employee_id"] == emp_id:
                 username = uname
-                role_akun = udata.get("role", "-")   # <-- aman
+                role_akun = udata.get("role", "-")
                 break
         print(f"{emp.id:<8} | {emp.name:<20} | {emp.role:<12} | {username:<15} | {role_akun:<12}")
 
     # Barang terlaris
     counter = {}
-    for s in store.sales:
+    for s in store.sales.values():
         for i, q in s.items:
             it = store.inventory.get(i)
             if it:
                 counter[it.name] = counter.get(it.name, 0) + q
+            else:
+                counter[f"[UNKNOWN:{i}]"] = counter.get(f"[UNKNOWN:{i}]", 0) + q
     top_items(counter, "Barang Terlaris", "unit")
 
     # Lokomotif terlaris (service)
@@ -2185,6 +2230,8 @@ def dashboard_admin():
             m = store.menu.get(i)
             if m:
                 food_count[m.name] = food_count.get(m.name, 0) + q
+            else:
+                food_count[f"[UNKNOWN:{i}]"] = food_count.get(f"[UNKNOWN:{i}]", 0) + q
     top_items(food_count, "Menu Favorit", "porsi")
 
     # Sparepart terpakai
@@ -2202,7 +2249,7 @@ def dashboard_admin():
         print("- Belum ada sparepart terpakai")
 # Kasir
 def dashboard_kasir():
-    print("\n\033[44m============== DASHBOARD KASIR ==============\033[0m")
+    print("\n\033[44m ============== DASHBOARD KASIR ============== \033[0m")
     if not store.sales:
         print("\n\033[33mBelum ada transaksi penjualan\033[0m")
         return
@@ -2225,7 +2272,7 @@ def dashboard_kasir():
         print(f"{nm:<20} | {qty:<6}")
 # Service
 def dashboard_service():
-    print("\n\033[44m========== DASHBOARD SERVICE ===========\033[0m")
+    print("\n\033[44m =========== DASHBOARD SERVICE ============ \033[0m")
     if not store.services:
         print("\n\033[33mBelum ada transaksi service lokomotif\033[0m")
         return
@@ -2260,7 +2307,7 @@ def dashboard_service():
         print(f"{lok.name:<20} | {status:<12}")
 # Rental
 def dashboard_rental():
-    print("\n\033[44m=========== DASHBOARD RENTAL ===========\033[0m")
+    print("\n\033[44m ============ DASHBOARD RENTAL ============ \033[0m")
     if not store.rentals:
         print("\n\033[33mBelum ada transaksi rental\033[0m")
         return
@@ -2300,7 +2347,7 @@ def dashboard_rental():
         print(f"{r.customer:<20} | {nama_lok:<20} | {r.days:<6} | {format_rupiah(r.total_fee):<15} | {r.status:<10}")
 # Dapur
 def dashboard_dapur():
-    print("\n\033[44m=========== DASHBOARD DAPUR ===========\033[0m")
+    print("\n\033[44m ============ DASHBOARD DAPUR ============ \033[0m")
     if not store.food_orders:
         print("\n\033[33mBelum ada pesanan makanan\033[0m")
         return
@@ -2323,7 +2370,7 @@ def dashboard_dapur():
         print(f"{nm:<20} | {qty:<6}")
 # Gudang
 def dashboard_gudang():
-    print("\n\033[44m=========== DASHBOARD GUDANG ===========\033[0m")
+    print("\n\033[44m ============ DASHBOARD GUDANG ============ \033[0m")
     # Ringkasan gudang
     print(f"Jumlah gudang: {len(store.warehouses)}")
     if not store.warehouses:
@@ -2337,7 +2384,7 @@ def dashboard_gudang():
         print("-"*95)
 
         if not wh.stock:
-            print("\033[33mTidak ada stok barang di gudang ini\033[0m")
+            print("\n\033[33mTidak ada stok barang di gudang ini\033[0m")
             continue
 
         found = False
@@ -3210,7 +3257,7 @@ def rental_menu():
         elif p == "0":
             return
 
-# Pesan Makan (clear v.2.10)
+# Pesan Makan (clear v.4.2.14)
 def food_menu():
     while True:
         h = head("KELOLA PEMESANAN MAKANAN")
@@ -3311,9 +3358,20 @@ def food_menu():
                 print("\n\033[33mBelum ada pesanan\033[0m")
             else:
                 print("\n\033[34m>> RIWAYAT PESANAN MAKANAN:\033[0m\n")
+                # Header tabel
+                print(f"{'No':<4} | {'Tanggal':<20} | {'Waiter':<12} | {'Customer':<20} | {'Detail Pesanan':<40} | {'Total':<15}")
+                print("-"*120)
+
+                # Isi tabel
                 for idx, o in enumerate(store.food_orders, 1):
-                    detail = [f"{store.menu[mid].name} x{qty}" for mid, qty in o.items]
-                    print(f"{idx}. {o.date} | {o.waiter} | {'; '.join(detail)} | Total: {format_rupiah(o.total)}")
+                    detail = []
+                    for mid, qty in o.items:
+                        menu_item = store.menu.get(mid)
+                        nm = menu_item.name if menu_item else f"[UNKNOWN:{mid}]"
+                        detail.append(f"{nm} x{qty}")
+                    detail_str = "; ".join(detail)
+
+                    print(f"{idx:<4} | {o.date:<20} | {o.waiter:<12} | {o.customer_name:<20} | {detail_str:<40} | {format_rupiah(o.total):<15}")
             pause()
 
         # Hapus menu (khusus admin/dapur)
@@ -3363,48 +3421,6 @@ def food_menu():
         elif p == "0":
             return
 
-# Laporan (PERLU TAMBHAN)
-def laporan_detail():
-    head("LAPORAN DETAIL")
-# Barang Terlaris
-    counter = {}
-    for s in store.sales:
-        for i, q in s.items:
-            it = store.inventory.get(i)
-            key = it.name if it else i
-            counter[key] = counter.get(key, 0) + q
-    top_items(counter, "Barang Terlaris", "unit")
-# Lokomotif Terlaris
-    lokomotif_count = {}
-    for r in store.services:
-        lok = store.lokomotif.get(r.lokomotif_id)
-        if lok:
-            lokomotif_count[lok.name] = lokomotif_count.get(lok.name, 0) + 1
-    top_items(lokomotif_count, "Lokomotif Terlaris", "kali diservis")
-# Menu Favorit
-    food_count = {}
-    for o in store.food_orders:
-        for i, q in o.items:
-            m = store.menu.get(i)
-            if m:
-                food_count[m.name] = food_count.get(m.name, 0) + q
-            else:
-                food_count[i] = food_count.get(i, 0) + q
-    top_items(food_count, "Menu Favorit", "porsi")
-# Laporan Karyawan & Akun
-    print("\n\033[34m>> Laporan Karyawan & Akun\033[0m")
-    print(f"{'Emp.ID':<8} | {'Nama':<20} | {'Jabatan':<10} | {'Username':<15} | {'Role Akun':<10} | {'Status':<10}")
-    print("-"*85)
-    for emp_id, emp in store.employees.items():
-        username = "-"
-        role_akun = "-"
-        for uname, udata in users.items():
-            if udata["employee_id"] == emp_id:
-                username = uname
-                role_akun = udata.get("role", "-")
-                break
-        print(f"{emp.id:<8} | {emp.name:<20} | {emp.role:<10} | {username:<15} | {role_akun:<10} | {emp.status:<10}")
-
 # >> Main Menu 
 def main_menu():
     global current_user, current_role
@@ -3442,9 +3458,9 @@ def main_menu():
 
         elif current_role == "kasir":
             ops = {
-                "1": "Penjualan Barang",
-                "2": "Dasbor Penjualan",
-                "3": "Kelola Akun",
+                "1": "Manajemen Penjualan",
+                "2": "Dasbor Role Penjualan",
+                "3": "Kelola Akun anda",
                 "9": "Logout"}
             choice = input_menu("MENU UTAMA (Kasir)", ops)
 
@@ -3458,9 +3474,9 @@ def main_menu():
 
         elif current_role == "service":
             ops = {
-                "1": "Servis Mobil",
-                "2": "Dasbor Servis",
-                "3": "Kelola Akun",
+                "1": "Manajemen Servis",
+                "2": "Dasbor Role Servis",
+                "3": "Kelola Akun anda",
                 "9": "Logout"}
             choice = input_menu("MENU UTAMA (Servis)", ops)
 
@@ -3474,9 +3490,9 @@ def main_menu():
 
         elif current_role == "rental":
             ops = {
-                "1": "Kelola Rental Lokomotif/Alat",
-                "2": "Dasbor Rental",
-                "3": "Kelola Akun",
+                "1": "Manajemen Rental",
+                "2": "Dasbor Role Rental",
+                "3": "Kelola Akun anda",
                 "9": "Logout"}
             choice = input_menu("MENU UTAMA (Rental)", ops)
 
@@ -3490,9 +3506,9 @@ def main_menu():
 
         elif current_role == "dapur":
             ops = {
-                "1": "Menu Makanan",
-                "2": "Dasbor Dapur",
-                "3": "Kelola Akun",
+                "1": "Manajemen Pemesanan makanan",
+                "2": "Dasbor Role Dapur",
+                "3": "Kelola Akun anda",
                 "9": "Logout"}
             choice = input_menu("MENU UTAMA (Dapur)", ops)
 
@@ -3506,10 +3522,10 @@ def main_menu():
 
         elif current_role == "gudang":
             ops = {
-                "1": "Kelola Inventaris",
-                "2": "Kelola Gudang",
-                "3": "Dasbor Gudang",
-                "4": "Kelola Akun",
+                "1": "Manajemen Inventaris",
+                "2": "Manajemen Gudang",
+                "3": "Dasbor Role Gudang",
+                "4": "Kelola Akun anda",
                 "9": "Logout"}
             choice = input_menu("MENU UTAMA (Gudang)", ops)
 
