@@ -868,26 +868,34 @@ def print_employees():
     for emp in store.employees.values():
         print(f"{emp.id:<8} | {emp.name:<12} | {emp.role:<12} | {emp.address:<30} | {emp.phone:<15}")
 
-EMPLOYEE_FILE = "employees.json" # lokasi
+EMPLOYEE_FILE = "employees.json"  # lokasi file
 
-def save_employees(): # simpan data
+def save_employees():
     data = {}
     for emp_id, emp in store.employees.items():
         data[emp_id] = {
             "name": emp.name,
-            "role": emp.role}
+            "role": emp.role,
+            "status": getattr(emp, "status", "Aktif"),
+            "address": getattr(emp, "address", "-"),
+            "phone": getattr(emp, "phone", "-")
+        }
     with open(EMPLOYEE_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
     print("\033[32mData karyawan berhasil disimpan\033[0m")
 
-def load_employees(): # data lama 
+def load_employees():
     if not os.path.exists(EMPLOYEE_FILE):
         return
     with open(EMPLOYEE_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
         for emp_id, info in data.items():
-            # Buat ulang objek Employee dan masukkan ke store.employees
-            store.employees[emp_id] = Employee(emp_id, info["name"], info["role"])
+            emp = Employee(emp_id, info["name"], info["role"])
+            # isi field tambahan jika ada
+            emp.status = info.get("status", "Aktif")
+            emp.address = info.get("address", "-")
+            emp.phone = info.get("phone", "-")
+            store.employees[emp_id] = emp
     print("\033[32mData karyawan berhasil dimuat\033[0m")
 
 # Service / Lokomotif
@@ -1515,28 +1523,34 @@ def lihat_profil(emp_id, current_user, current_role):
             print("\n\033[31mAnda hanya bisa melihat profil sendiri\033[0m")
             return
 
-    if emp_id not in store.employees:
-        print(f"\n\033[31mKaryawan '{emp_id}' tidak ditemukan\033[0m")
-        return
-
-    emp = store.employees[emp_id]
-
-    # Data karyawan
-    print(f"ID Karyawan   : {emp.id}")
-    print(f"Nama          : {emp.name}")
-    print(f"Role          : {emp.role}")
-    print(f"Alamat        : {getattr(emp, 'address', '-')}")
-    print(f"Nomor HP      : {getattr(emp, 'phone', '-')}")
-    print(f"Status        : {getattr(emp, 'status', 'N/A')}")
+    # Cek di store.employees dulu
+    if emp_id in store.employees:
+        emp = store.employees[emp_id]
+        print(f"ID Karyawan   : {emp.id}")
+        print(f"Nama          : {emp.name}")
+        print(f"Role          : {emp.role}")
+        print(f"Alamat        : {getattr(emp, 'address', '-')}")
+        print(f"Nomor HP      : {getattr(emp, 'phone', '-')}")
+        print(f"Status        : {getattr(emp, 'status', 'Aktif')}")
+    else:
+        # Fallback ke users.json
+        for uname, data in users.items():
+            if data.get("employee_id") == emp_id:
+                print(f"ID Karyawan   : {emp_id}")
+                print(f"Nama          : {uname.capitalize()}")
+                print(f"Role          : {data.get('role','N/A')}")
+                print(f"Alamat        : -")
+                print(f"Nomor HP      : -")
+                print(f"Status        : {data.get('status','Aktif')}")
+                break
+        else:
+            print(f"\n\033[31mKaryawan '{emp_id}' tidak ditemukan\033[0m")
+            return
 
     # Hubungan dengan akun login
     for uname, data in users.items():
         if data.get("employee_id") == emp_id:
-            # fallback role akun
-            role_akun = data.get("role")
-            if not role_akun or role_akun == "N/A":
-                role_akun = emp.role
-
+            role_akun = data.get("role") or "N/A"
             print(f"Akun Login    : {uname}")
             print(f"Role Akun     : {role_akun}")
             print(f"Status Akun   : {data.get('status','Aktif')}")
