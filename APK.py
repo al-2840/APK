@@ -180,11 +180,20 @@ def find_item(query: str):
     results = []
 
     for kw in keywords:
-        # cari berdasarkan ID atau nama
-        for item in store.inventory.values():   # asumsi inventory dict
-            if item.item_id.lower() == kw or item.name.lower() == kw:
+        # cari berdasarkan ID
+        if kw.upper() in store.inventory:
+            results.append(store.inventory[kw.upper()])
+            continue
+        # cari berdasarkan nama
+        for item in store.inventory.values():
+            if item.name.lower() == kw:
                 results.append(item)
+                break
 
+    # kalau hanya 1 hasil, return objek langsung
+    if len(results) == 1:
+        return results[0]
+    # kalau banyak hasil, return list
     return results
 
 def find_warehouse(query: str):
@@ -648,18 +657,35 @@ def transaksi_penjualan():
         query = input("\nID/Nama barang: ").strip()
         if query == "":
             break
+
         item = find_item(query)
-        if not item:
-            print(f"\n\033[31mBarang {query} tidak ada\033[0m")
+
+        # hasil tunggal → langsung objek
+        if isinstance(item, InventoryItem):
+            if item.status != "Siap Jual" or item.confirmed_stock <= 0:
+                print(f"\nBarang {item.name} belum dikonfirmasi untuk dijual")
+                continue
+            qty = input_int("Jumlah: ", min_val=1)
+            if qty > item.confirmed_stock:
+                print(f"\nStok {item.name} aman kurang")
+                continue
+            cart.append((item.item_id, qty))
+
+        # hasil list → loop semua
+        elif isinstance(item, list):
+            for obj in item:
+                if obj.status != "Siap Jual" or obj.confirmed_stock <= 0:
+                    print(f"\nBarang {obj.name} belum dikonfirmasi untuk dijual")
+                    continue
+                qty = input_int(f"Jumlah {obj.name}: ", min_val=1)
+                if qty > obj.confirmed_stock:
+                    print(f"\nStok {obj.name} aman kurang")
+                    continue
+                cart.append((obj.item_id, qty))
+
+        else:
+            print(f"\nBarang {query} tidak ada")
             continue
-        if item.status != "Siap Jual" or item.confirmed_stock <= 0:
-            print("\nBarang \033[33mbelum dikonfirmasi\033[0m untuk dijual")
-            continue
-        qty = input_int("Jumlah: ", min_val=1)
-        if qty > item.confirmed_stock:
-            print("\n\033[33mStok aman kurang\033[0m")
-            continue
-        cart.append((item.item_id, qty))
 
     if not cart:
         print("\n\033[31mKeranjang kosong. Ulangi input barang\033[0m")
@@ -679,7 +705,7 @@ def transaksi_penjualan():
             print(f"\n\033[31mStok {i} di gudang {wh_id} tidak cukup\033[0m")
             return
         store.warehouses[wh_id].stock[i]["qty"] -= q
-        store.inventory[i].confirmed_stock -= q   # sinkron ke inventaris
+        store.inventory[i].confirmed_stock -= q
         log_warehouse("OUT", i, q, current_user, warehouse_id=wh_id)
 
     # Input metode pembayaran
@@ -1017,7 +1043,7 @@ def tampilkan_nota_service(record, jasa, parts_cost, total_fee):
     print(f"Biaya Jasa    : {format_rupiah(jasa)}")
     print(f"Total Biaya   : {format_rupiah(total_fee)}")
 
-def tampilkan_nota_makanan(order: FoodOrder, store: Store):
+def tampilkan_nota_makanan(order: "FoodOrder", store: "Store"):
     print("\n\033[30m=== NOTA PEMBELIAN MAKANAN PT. \033[0m\n")
     print(f"Customer      : {order.customer_name}")
     print(f"Meja          : {order.table_number}")
