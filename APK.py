@@ -2,7 +2,7 @@
 Aplikasi       : ? (?) - Versi 4.3.0 (target max fix, MAJOR.MINOR.PATCH)
 Fitur          : Mengelola inventaris, karyawan, penjualan, service mobil, dan pemesanan makanan, semuanya terintegrasi dengan laporan ringkas di dashboard.
 Penulis        : 2840 & 2835
-Versi (update) : 4.2.14
+Versi (update) : 4.2.15
 """
 import sys
 import time
@@ -435,6 +435,82 @@ def print_warehouses():
         mark = " *DEFAULT*" if w.warehouse_id == default_wh else ""
         print(f"{w.warehouse_id:<8} | {w.name:<20} | {w.address:<30}{mark}")
 
+def lihat_pending_requests():
+    print("\n\033[34m>> PERMINTAAN PENDING DARI SERVIS:\033[0m")
+    try:
+        with open("pending_requests.txt", "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        if not lines:
+            print("\033[33m- Tidak ada permintaan pending -\033[0m")
+            return
+
+        # Header tabel
+        print(f"{'No':<4} | {'Tanggal':<20} | {'Item ID':<10} | {'Qty':<5} | {'Operator':<15} | {'Status':<20}")
+        print("-"*85)
+
+        # Isi tabel
+        for idx, line in enumerate(lines, 1):
+            req = json.loads(line.strip())
+            print(f"{idx:<4} | {req['date']:<20} | {req['item_id']:<10} | {req['qty_requested']:<5} | {req['operator']:<15} | {req['status']:<20}")
+
+        # Input pilihan
+        user_input = input("\nPilih nomor permintaan untuk approve (Enter/0 = batal, bisa banyak: 1,3,5): ").strip()
+        if user_input == "" or user_input == "0":
+            print("\033[33mDibatalkan oleh user.\033[0m")
+            return
+
+        try:
+            choices = [int(x.strip()) for x in user_input.split(",") if x.strip().isdigit()]
+        except ValueError:
+            print("\033[31mInput tidak valid\033[0m")
+            return
+
+        invalid = [c for c in choices if c < 1 or c > len(lines)]
+        if invalid:
+            print(f"\033[31mNomor {invalid} tidak valid\033[0m")
+            return
+
+        new_lines = []
+        for idx, line in enumerate(lines, 1):
+            req = json.loads(line.strip())
+            if idx in choices:
+                # update status barang di inventory
+                item = store.inventory.get(req['item_id'])
+                if item and item.confirmed_stock > 0 and item.price > 0:
+                    item.status = "Siap Jual"
+                    print(f"\033[32mBarang {item.item_id} ({item.name}) dikonfirmasi SIAP JUAL oleh Inventaris\033[0m")
+
+                    # update waiting_services.txt → ubah status jadi Ready
+                    try:
+                        with open("waiting_services.txt", "r", encoding="utf-8") as wf:
+                            waiting_lines = wf.readlines()
+                        updated_lines = []
+                        for wline in waiting_lines:
+                            srv = json.loads(wline.strip())
+                            # cek apakah sparepart ini ada di parts
+                            if req['item_id'] in " ".join(srv['parts']):
+                                srv['status'] = "Ready"
+                                # hapus label (Pending) di parts
+                                srv['parts'] = [p.replace("(Pending)", "") for p in srv['parts']]
+                                print(f"\033[32mServis {srv['service_id']} sekarang READY\033[0m")
+                            updated_lines.append(json.dumps(srv) + "\n")
+                        with open("waiting_services.txt", "w", encoding="utf-8") as wf:
+                            wf.writelines(updated_lines)
+                    except FileNotFoundError:
+                        pass  # kalau belum ada waiting_services.txt
+
+                else:
+                    print(f"\033[31mBarang {req['item_id']} tidak valid (stok/harga belum ada)\033[0m")
+            else:
+                new_lines.append(line)
+
+        # tulis ulang pending_requests.txt tanpa permintaan yang sudah diproses
+        with open("pending_requests.txt", "w", encoding="utf-8") as f:
+            f.writelines(new_lines)
+
+    except FileNotFoundError:
+        print("\n\033[31mFile pending_requests.txt belum ada\033[0m")
+
 # Akses & Role
 def check_access(required_role):
     if current_role != required_role:
@@ -487,10 +563,19 @@ def log_service(action, record, filename="services.txt"):
     data = {
         "date": datetime.now().strftime("%Y-%m-%d (%H:%M:%S)"),
         "user": current_user,
-        "action": action,
-        **record.__dict__}
-    with open(filename, "a") as f:
-        f.write(json.dumps(data) + "\n")
+        "action": action,}
+
+    # kalau record object (misalnya ServiceRecord)
+    if hasattr(record, "__dict__"):
+        data.update(record.__dict__)
+    # kalau record dict biasa (misalnya waiting service)
+    elif isinstance(record, dict):
+        data.update(record)
+
+    with open(filename, "a", encoding="utf-8") as f:
+        f.write(json.dumps(data, ensure_ascii=False) + "\n")
+
+    print(f"\033[36m[LOG] {action} dicatat untuk servis {data.get('lokomotif_id','')}\033[0m")
 
 def log_sale(sale_type, ref_id, amount, extra=None, filename="sales.txt"):
     record = {
@@ -504,6 +589,19 @@ def log_sale(sale_type, ref_id, amount, extra=None, filename="sales.txt"):
         record.update(extra)
     with open(filename, "a") as f:
         f.write(json.dumps(record) + "\n")
+
+def log_pending_request(item_id: str, qty: int, operator: str, service_id: str = None):
+    record = {
+        "date": datetime.now().strftime("%Y-%m-%d (%H:%M)"),
+        "item_id": item_id,
+        "qty_requested": qty,
+        "operator": operator,
+        "status": "Pending Konfirmasi",
+        "service_id": service_id if service_id else "-" }
+    with open("pending_requests.txt", "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    print(f"\n\033[33mPermintaan konfirmasi sparepart {item_id} ({qty} unit) dicatat ke log.\033[0m")
 
 # Admin & Review
 def review_requests():
@@ -524,28 +622,43 @@ def review_requests():
             req = json.loads(line)
             print(f"{idx:<4} | {req['date']:<12} | {req['user']:<12} | {req['name']:<20} | {req['item_id']:<8}")
 
-        # Input pilihan
-        idx_choice = input_int("Pilih nomor untuk approve (0=keluar): ", min_val=0)
-        if idx_choice == 0:
-            return
-        if idx_choice > len(lines):
-            print(f"\n\033[31mNomor {idx_choice} tidak valid\033[0m")
+        # Input pilihan (bisa banyak nomor sekaligus)
+        user_input = input("\nPilih nomor untuk approve (pisahkan dengan koma, Enter/0=keluar): ").strip()
+        if user_input == "" or user_input == "0":
+            print("\n\033[33mDibatalkan oleh user.\033[0m")
             return
 
-        req = json.loads(lines[idx_choice-1])
-        item = store.inventory.get(req['item_id'])
+        try:
+            choices = [int(x.strip()) for x in user_input.split(",") if x.strip().isdigit()]
+        except ValueError:
+            print("\n\033[31mInput tidak valid\033[0m")
+            return
+        # Validasi
+        invalid = [c for c in choices if c < 1 or c > len(lines)]
+        if invalid:
+            print(f"\n\033[31mNomor {invalid} tidak valid\033[0m")
+            return
+        # Proses tiap pilihan
+        approved = []
+        for idx_choice in choices:
+            req = json.loads(lines[idx_choice-1])
+            item = store.inventory.get(req['item_id'])
 
-        if item and item.confirmed_stock > 0 and item.price > 0:
-            item.status = "Siap Jual"
-            print(f"\n\033[32mBarang {item.item_id} ({item.name}) dikonfirmasi SIAP JUAL oleh Admin\033[0m")
+            if item and item.confirmed_stock > 0 and item.price > 0:
+                item.status = "Siap Jual"
+                approved.append(req['item_id'])
+                print(f"\n\033[32mBarang {item.item_id} ({item.name}) dikonfirmasi SIAP JUAL oleh Admin\033[0m")
+            else:
+                print(f"\n\033[31mBarang {req['name']} tidak valid (stok/harga belum ada)\033[0m")
+        # Hapus request yang sudah diproses
+        with open("inventory_requests.txt", "w") as f:
+            for i, line in enumerate(lines, 1):
+                if i not in choices:
+                    f.write(line)
 
-            # hapus request yang sudah diproses
-            with open("inventory_requests.txt", "w") as f:
-                for i, line in enumerate(lines, 1):
-                    if i != idx_choice:
-                        f.write(line)
-        else:
-            print(f"\n\033[31mBarang {req['name']} tidak valid (stok/harga belum ada)\033[0m")
+        if approved:
+            print(f"\n\033[32mTotal {len(approved)} barang dikonfirmasi SIAP JUAL.\033[0m")
+
     except FileNotFoundError:
         print("\n\033[33mBelum ada file permintaan\033[0m")
 
@@ -835,7 +948,7 @@ def print_employees():
     for emp in store.employees.values():
         print(f"{emp.id:<8} | {emp.name:<12} | {emp.role:<12} | {emp.address:<30} | {emp.phone:<15}")
 
-EMPLOYEE_FILE = "employees.json"  # lokasi file
+EMPLOYEE_FILE = "employees.json" 
 
 def save_employees():
     data = {}
@@ -900,6 +1013,278 @@ def rental_service_menu():
         service_menu()
     elif choice == "0":
         return
+
+def mulai_service():
+    # cek akses role
+    if not check_access("service"):
+        print("\n\033[31mRole kamu tidak punya akses ke menu service\033[0m")
+        return
+    # tampilkan daftar lokomotif
+    print_lokomotif()
+    user_input = input("\nID/Nama lokomotif (Enter untuk batal): ").strip().upper()
+    if user_input == "":
+        print("\033[33mServis dibatalkan.\033[0m")
+        return
+    # cari berdasarkan ID
+    lok = store.lokomotif.get(user_input)
+    # kalau tidak ketemu, coba cari berdasarkan nama
+    if not lok:
+        for obj in store.lokomotif.values():
+            if obj.name.upper() == user_input:
+                lok = obj
+                break
+    # validasi lokomotif
+    if not lok:
+        print("\n\033[31mLokomotif tidak ditemukan\033[0m")
+        return
+    if lok.status == "Diservis":
+        print(f"\n\033[31mLokomotif {lok.name} sedang diservis, tidak bisa dimulai lagi\033[0m")
+        return
+    if lok.status != "Tersedia":
+        print("\n\033[31mLokomotif tidak tersedia\033[0m")
+        return
+    # input data servis
+    customer = input("Nama customer: ").strip()
+    days = input_int("Durasi (hari): ", min_val=1)
+    # pilih sparepart dari inventory
+    parts_used, parts_cost, has_pending, cancelled = pilih_sparepart()
+    # kalau user batal saat pilih sparepart
+    if cancelled:
+        print("\n\033[33mServis dibatalkan oleh user.\033[0m")
+        return
+    # kalau ada sparepart pending → masuk daftar tunggu
+    if has_pending:
+        service_id = store.gen_id("SRV")
+        record = {
+            "service_id": service_id,
+            "lokomotif_id": lok.id,
+            "customer": customer,
+            "parts": parts_used,
+            "status": "Menunggu Sparepart",
+            "days": days,
+            "parts_cost": parts_cost,
+            "total_fee": 0}
+        with open("waiting_services.txt", "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+        log_service("Menunggu Sparepart", record)
+        print(f"\n\033[33mServis {service_id} ditunda karena ada sparepart pending.\033[0m")
+        return
+    # kalau tidak ada pending → lanjutkan servis normal
+    jasa = lok.rate_per_day * days
+    total_fee = jasa + parts_cost
+    start_date = datetime.now()
+    end_date = start_date + timedelta(days=days)
+    lok.status = "Diservis"
+
+    record = ServiceRecord(
+        lokomotif_id=lok.id,
+        customer=customer,
+        service_type=lok.service_type,
+        days=days,
+        parts_used=parts_used,
+        parts_cost=parts_cost,
+        total_fee=total_fee,
+        start_date=start_date.strftime("%Y-%m-%d (%H:%M)"),
+        end_date=end_date.strftime("%Y-%m-%d (%H:%M)"),
+        officer=current_user)
+    store.services.append(record)
+
+    log_service("Mulai Service", record)
+
+    sale_id = store.gen_id("SALE")
+    store.sales[sale_id] = {
+        "type": "service",
+        "ref": record.lokomotif_id,
+        "amount": total_fee,
+        "date": datetime.now().strftime("%Y-%m-%d")}
+
+    log_employee_action(
+        current_user,
+        current_role,
+        "Mulai Service",
+        {"lok_id": lok.id, "customer": customer, "days": days, "total_fee": total_fee})
+    # konfirmasi terakhir sebelum cetak nota
+    confirm = input("\nYakin mulai servis ini? (y/n): ").strip().lower()
+    if confirm != "y":
+        print("\033[33mServis dibatalkan oleh user sebelum nota dicetak.\033[0m")
+        # rollback status lokomotif ke 'Tersedia'
+        lok.status = "Tersedia"
+        # hapus record dari store.services
+        store.services.remove(record)
+        return
+
+    # kalau user setuju → cetak nota
+    tampilkan_nota_service(record, jasa, parts_cost, total_fee)
+
+def lihat_waiting_services():
+    print("\n\033[34m>>> DAFTAR TUNGGU SERVIS\033[0m")
+    try:
+        with open("waiting_services.txt", "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        if not lines:
+            print("\033[33mTidak ada servis menunggu\033[0m")
+            return
+
+        # Header tabel
+        print(f"{'ID':<8} | {'Customer':<12} | {'Lokomotif':<10} | {'Status':<15} | {'Sparepart':<20}")
+        print("-"*75)
+
+        # Isi tabel
+        for line in lines:
+            srv = json.loads(line.strip())
+            print(f"{srv['service_id']:<8} | {srv['customer']:<12} | {srv['lokomotif_id']:<10} | {srv['status']:<15} | {', '.join(srv['parts']):<20}")
+
+        # Input pilihan
+        choice = input("\nID servis yang mau dilanjutkan (Enter=keluar): ").strip().upper()
+        if choice == "":
+            return
+
+        new_lines = []
+        found = False
+        for line in lines:
+            srv = json.loads(line.strip())
+            if srv['service_id'] == choice and srv['status'] == "Ready":
+                found = True
+                # buat record servis normal
+                record = ServiceRecord(
+                    lokomotif_id=srv['lokomotif_id'],
+                    customer=srv['customer'],
+                    service_type=srv.get('service_type', "Perbaikan"),
+                    days=srv.get('days', 0),
+                    parts_used=srv['parts'],
+                    parts_cost=srv.get('parts_cost', 0),
+                    total_fee=srv.get('total_fee', 0),
+                    start_date=datetime.now().strftime("%Y-%m-%d (%H:%M)"),
+                    end_date="",
+                    officer=current_user)
+                store.services.append(record)
+                # update status lokomotif
+                if srv['lokomotif_id'] in store.lokomotif:
+                    store.lokomotif[srv['lokomotif_id']].status = "Diservis"
+                print(f"\033[32mServis {choice} dilanjutkan!\033[0m")
+            else:
+                new_lines.append(line)
+
+        # tulis ulang file tanpa servis yang sudah dilanjutkan
+        with open("waiting_services.txt", "w", encoding="utf-8") as f:
+            f.writelines(new_lines)
+
+        if not found:
+            print("\n\033[31mServis tidak ditemukan atau belum Ready\033[0m")
+
+    except FileNotFoundError:
+        print("\n\033[33mBelum ada file waiting_services.txt\033[0m")
+
+def lihat_servis_notifications():
+    print("\n\033[34m>> NOTIFIKASI DARI INVENTARIS:\033[0m")
+    try:
+        with open("servis_notifications.txt", "r", encoding="utf-8") as f:
+            lines = f.readlines()
+            if not lines:
+                print("\n\033[33m- Tidak ada notifikasi -\033[0m")
+                return
+
+            print(f"{'Tanggal':<20} | {'Item ID':<10} | {'Qty Ready':<10} | {'Status':<15}")
+            print("-"*70)
+            for line in lines:
+                notif = json.loads(line.strip())
+                print(f"{notif['date']:<20} | {notif['item_id']:<10} | {notif['qty']:<10} | {notif['status']:<15}")
+    except FileNotFoundError:
+        print("\n\033[31mFile servis_notifications.txt belum ada\033[0m")
+
+def print_inventory_service():
+    print("\n\033[34m>> INVENTARIS BARANG (Servis):\033[0m")
+    if not store.inventory:
+        print("\033[31m- KOSONG -\033[0m")
+        return
+
+    # Header tabel
+    print(f"{'ID':<8} | {'Nama':<20} | {'Unit':<5} | {'Harga Beli':<15} | {'Kategori':<15} | {'Kondisi':<12} | {'Gudang':<20}")
+    print("-"*110)
+
+    for it in store.inventory.values():
+        # hanya tampilkan item dengan status "Siap Jual" atau "Pending"
+        if it.status not in ["Siap Jual", "Pending"]:
+            continue
+
+        # Warna status
+        if it.status == "Pending":
+            status_ui = f"\033[33m{it.status}\033[0m"
+        elif it.status == "Siap Jual":
+            status_ui = f"\033[32m{it.status}\033[0m"
+        else:
+            status_ui = it.status
+
+        kategori_text = KATEGORI_LIST.get(str(it.category), it.category)
+        kategori_ui = kategori_color(kategori_text)
+
+        gudang_list = []
+        for w in store.warehouses.values():
+            if it.item_id in w.stock:
+                gudang_list.append(w.name)
+        gudang_ui = ", ".join(gudang_list) if gudang_list else "-"
+
+        print(f"{it.item_id:<8} | {it.name:<20} | {it.confirmed_stock:<5} | {format_rupiah(it.price):<15} | {kategori_ui:<24} | {status_ui:<21} | {gudang_ui:<20}")
+
+def pilih_sparepart():
+    parts_used = []
+    parts_cost = 0
+    has_pending = False
+    cancelled = False
+
+    while True:
+        print_inventory_service()
+        user_input = input("\nID/Nama barang (Enter = selesai, ketik 'BATAL'= kembali): ").strip().upper()
+        # kalau user tekan Enter → selesai pilih sparepart
+        if user_input == "":
+            break
+        # kalau user ketik BATAL → batal servis
+        if user_input == "BATAL":
+            cancelled = True
+            break
+        item = store.inventory.get(user_input)
+        if not item:
+            for obj in store.inventory.values():
+                if obj.name.upper() == user_input:
+                    item = obj
+                    break
+
+        if not item:
+            print("\n\033[31mID/Nama tidak ditemukan\033[0m")
+            continue
+        # validasi status
+        if item.status == "Siap Jual":
+            qty = input_int("Jumlah: ", min_val=1)
+            if qty > item.total_stock():
+                print("\n\033[31mStok tidak cukup\033[0m")
+                continue
+            # kurangi stok dari gudang
+            sisa = qty
+            for gudang_id in item.stock_by_warehouse:
+                if item.stock_by_warehouse[gudang_id] > 0:
+                    ambil = min(item.stock_by_warehouse[gudang_id], sisa)
+                    item.stock_by_warehouse[gudang_id] -= ambil
+                    sisa -= ambil
+                    if sisa == 0:
+                        break
+
+            parts_used.append(f"{item.name} x{qty}")
+            parts_cost += item.price * qty
+
+        elif item.status == "Pending":
+            qty = input_int("Jumlah: ", min_val=1)
+            print(f"\n\033[33mItem {item.name} masih pending, minta konfirmasi ke pihak inventaris untuk {qty} unit.\033[0m")
+            log_pending_request(item.item_id, qty, current_user)
+            parts_used.append(f"{item.name} x{qty} (Pending)")
+            parts_cost += item.price * qty
+            has_pending = True
+
+        else:
+            print("\n\033[31mItem tidak bisa dipakai untuk servis\033[0m")
+            continue
+
+    return parts_used, parts_cost, has_pending, cancelled
 
 # Makanan
 def print_menu_items(hide_id=False):
@@ -984,39 +1369,23 @@ def proses_pembayaran_makanan(customer_name: str, table_number: str, cart: List[
     # Cetak nota makanan
     tampilkan_nota_makanan(order, store)
 
-# Sparepart
-def pilih_sparepart():
-    parts_used = []
-    parts_cost = 0
-    while True:
-        print_inventory()
-        part_id = input("ID sparepart (Enter untuk selesai): ").strip().upper()
-        if part_id == "":
-            break
-        if part_id not in store.inventory:
-            print("\n\033[31mID tidak ditemukan\033[0m")
-            continue
-        qty = input_int("Jumlah: ", min_val=1)
-        if qty > store.inventory[part_id].stock:
-            print("\n\033[31mStok tidak cukup\033[0m")
-            continue
-        store.inventory[part_id].stock -= qty
-        parts_used.append(f"{store.inventory[part_id].name} x{qty}")
-        parts_cost += store.inventory[part_id].price * qty
-    return parts_used, parts_cost
-
 # Nota / Bukti Transaksi
 def tampilkan_nota_service(record, jasa, parts_cost, total_fee):
-    print("\n\033[30m=== NOTA SERVICE PT.AMOT \033[0m")
-    print(f"Customer      : {record.customer}")
-    print(f"Lokomotif     : {record.lokomotif_id}")
-    print(f"Jenis Service : {record.service_type}")
-    print(f"Tgl Mulai     : {record.start_date}")
-    print(f"Tgl Selesai   : {record.end_date}")
-    print(f"Sparepart     : {', '.join(record.parts_used) if record.parts_used else '-'}")
-    print(f"Biaya Sparepart: {format_rupiah(parts_cost)}")
-    print(f"Biaya Jasa    : {format_rupiah(jasa)}")
-    print(f"Total Biaya   : {format_rupiah(total_fee)}")
+    print("\n\033[30m=== NOTA SERVICE PT. LOKOMOTIF ===\033[0m")
+    print(f"Service ID      : {getattr(record, 'service_id', '-')}")
+    print(f"Customer        : {record.customer}")
+    print(f"Lokomotif       : {record.lokomotif_id}")
+    print(f"Jenis Service   : {record.service_type}")
+    print(f"Status          : {getattr(record, 'status', 'Diservis')}")
+    print(f"Tgl Mulai       : {record.start_date}")
+    print(f"Tgl Selesai     : {record.end_date if record.end_date else '-'}")
+    print(f"Sparepart       : {', '.join(record.parts_used) if record.parts_used else '-'}")
+    print(f"Biaya Sparepart : {format_rupiah(parts_cost)}")
+    print(f"Biaya Jasa      : {format_rupiah(jasa)}")
+    print("-"*40)
+    print(f"Total Biaya     : {format_rupiah(total_fee)}")
+    print(f"Operator        : {getattr(record, 'officer', current_user)}")
+    print("\033[30m=== TERIMA KASIH ===\033[0m")
 
 def tampilkan_nota_makanan(order: "FoodOrder", store: "Store"):
     print("\n\033[30m=== NOTA PEMBELIAN MAKANAN PT. \033[0m\n")
@@ -1205,7 +1574,7 @@ class InventoryItem:
     stock_by_warehouse: Dict[str, int] = field(default_factory=dict)  # stok fisik per gudang
 
     def total_stock(self) -> int:
-        # total stok fisik dari semua gudang
+        """Jumlah stok fisik dari semua gudang"""
         return sum(self.stock_by_warehouse.values())
 @dataclass
 class Warehouse:
@@ -1235,7 +1604,7 @@ class Store:
         self.food_orders: List[FoodOrder] = []
         self.warehouses: Dict[str, Warehouse] = {}
         self.rentals: List[RentalRecord] = []  
-        self.counters = {"INV": 0, "EMP": 0, "LOK": 0, "MEN": 0, "REN": 0, "SALE": 0}
+        self.counters = {"INV": 0, "EMP": 0, "LOK": 0, "MEN": 0, "REN": 0, "SALE": 0, "SRV": 0}
 
     def gen_id(self, prefix: str) -> str:
         self.counters[prefix] += 1
@@ -1483,7 +1852,7 @@ def list_accounts(simple=False):
             status = data.get("status", "Aktif")
             last_login = data.get("last_login", "-")
             status_display = "\033[32mAktif\033[0m" if status == "Aktif" else "\033[33mNonaktif\033[0m"
-            print(f"{uname:<12} | {role:<10} | {emp_id:<8} | {emp_name:<15} | {status_display:<21} | {last_login:<20}")
+            print(f"{uname:<12} | {role:<10} | {emp_id:<8} | {emp_name:<15} | {status_display:<20} | {last_login:<20}")
     pause()
 
 def lihat_profil(emp_id, current_user, current_role):
@@ -1648,7 +2017,7 @@ def update_last_login(uname: str):
         ts = datetime.now().strftime("%Y-%m-%d (%H:%M:%S)")
         users[uname]["last_login"] = ts
         save_users()
-        
+
 # Login
 def login():
     global current_user, current_role
@@ -2421,6 +2790,7 @@ def inventory_menu():
                 "3": "Ubah/Hapus Barang",
                 "4": "Lihat Riwayat Barang",
                 "5": "Minta Konfirmasi Siap Jual",
+                "6": "Review Permintaan Servis",
                 "9": "Kembali"}
             choice = input_menu("MENU INVENTARIS (Gudang)", ops)
 
@@ -2547,14 +2917,17 @@ def inventory_menu():
                     with open("inventory_requests.txt", "a") as f:
                         f.write(json.dumps(request) + "\n")
                     print(f"\n\033[33mPermintaan konfirmasi {item.name} dikirim ke Admin\033[0m")
+            # Lihat Pending Req
+            elif choice == "6":
+                lihat_pending_requests()
             elif choice == "9":
                 return
 
         # Bagian Admin
         elif current_role == "admin":
             ops = {
-                "1": "Lihat Riwayat Barang Masuk/Keluar",
-                "2": "Review Permintaan Konfirmasi",
+                "1": "Riwayat Barang Masuk/Keluar",
+                "2": "Review Permintaan Inventaris",
                 "9": "Kembali"}
             choice = input_menu("MENU INVENTARIS (Admin)", ops)
             if choice == "1":
@@ -2911,11 +3284,11 @@ def sales_menu():
         elif p == "0":
             return
     
-# Service (clear v.4.2.8)
+# Service (clear v.4.2.15)
 def service_menu():
     while True:
         h = head("KELOLA SERVICE LOKOMOTIF")
-        ops = {"1": "Lihat lokomotif", "2": "Mulai service", "3": "Selesaikan service", "4": "Riwayat service", "5": "Hapus lokomotif", "0": "Kembali"}
+        ops = {"1": "Lihat lokomotif", "2": "Mulai service", "3": "Selesaikan service", "4": "Riwayat service", "5": "Hapus lokomotif", "6": "Notifikasi dari Inventaris", "7": "Daftar Tunggu Servis", "0": "Kembali"}
         p = input_menu("Data Service", ops)
 
         # Daftar Lokomotif
@@ -2923,63 +3296,7 @@ def service_menu():
             print_lokomotif()
             pause()
         # Mulai service
-        elif p == "2":
-            if not check_access("service"):
-                return
-
-            print_lokomotif()
-            lok_id = input("ID lokomotif: ").strip().upper()
-            lok = store.lokomotif.get(lok_id)
-            if not lok or lok.status != "Tersedia":
-                print("\033[31mLokomotif tidak tersedia\033[0m")
-                continue
-
-            customer = input("Nama customer: ").strip()
-            days = input_int("Durasi (hari): ", min_val=1)
-
-            # pilih sparepart dari inventory
-            parts_used, parts_cost = pilih_sparepart()
-
-            jasa = lok.rate_per_day * days
-            total_fee = jasa + parts_cost
-
-            start_date = datetime.now()
-            end_date = start_date + timedelta(days=days)
-            lok.status = "Diservis"
-
-            record = ServiceRecord(
-                lokomotif_id=lok_id,
-                customer=customer,
-                service_type=lok.service_type,
-                days=days,
-                parts_used=parts_used,
-                parts_cost=parts_cost,
-                total_fee=total_fee,
-                start_date=start_date.strftime("%Y-%m-%d (%H:%M)"),
-                end_date=end_date.strftime("%Y-%m-%d (%H:%M)"),
-                officer=current_user)
-            store.services.append(record)
-
-            # catat ke file log
-            log_service("Mulai Service", record)
-
-            # integrasi ke penjualan
-            sale_id = store.gen_id("SALE")
-            store.sales[sale_id] = {
-                "type": "service",
-                "ref": record.lokomotif_id,
-                "amount": total_fee,
-                "date": datetime.now().strftime("%Y-%m-%d")}
-
-            # catat aktivitas karyawan
-            log_employee_action(
-                current_user,
-                current_role,
-                "Mulai Service",
-                {"lok_id": lok_id, "customer": customer, "days": days, "total_fee": total_fee})
-
-            # tampilkan nota
-            tampilkan_nota_service(record, jasa, parts_cost, total_fee)
+        elif p == "2": mulai_service()
         # Selesaikan service
         elif p == "3":
             if not check_access("service"):
@@ -2995,24 +3312,46 @@ def service_menu():
                 status = "\033[33mDiservis\033[0m" if lok and lok.status == "Diservis" else "\033[32mTersedia/Selesai\033[0m"
                 print(f"{idx}. {r.customer} | {lok.name if lok else r.lokomotif_id} | {r.days} hari | {format_rupiah(r.total_fee)} | Status: {status}")
 
-            idx = input_int("Pilih nomor transaksi yang selesai: ", min_val=1, max_val=len(store.services))
-            r = store.services[idx - 1]
+            user_input = input("\nPilih nomor transaksi yang selesai (pisahkan dengan koma, Enter/0 = batal): ").strip()
+            if user_input == "" or user_input == "0":
+                print("\n\033[33mDibatalkan oleh user.\033[0m")
+                return
 
-            # Update status lokomotif
-            if r.lokomotif_id in store.lokomotif:
-                store.lokomotif[r.lokomotif_id].status = "Selesai"
+            try:
+                choices = [int(x.strip()) for x in user_input.split(",") if x.strip().isdigit()]
+            except ValueError:
+                print("\n\033[31mInput tidak valid\033[0m")
+                return
 
-            # Logging service selesai
-            log_service("Selesaikan Service", r)
+            invalid = [c for c in choices if c < 1 or c > len(store.services)]
+            if invalid:
+                print(f"\n\033[31mNomor {invalid} tidak valid\033[0m")
+                return
 
-            # Logging aktivitas karyawan
-            log_employee_action(
-                current_user,
-                current_role,
-                "Selesaikan Service",
-                {"lok_id": r.lokomotif_id, "customer": r.customer, "total_fee": r.total_fee})
+            for idx in choices:
+                r = store.services[idx - 1]
 
-            print("\n\033[32mService ditandai selesai. Status lokomotif diperbarui ke\033[0m \033[32m'Selesai'\033[0m")
+                # Update status lokomotif → langsung jadi "Tersedia"
+                if r.lokomotif_id in store.lokomotif:
+                    store.lokomotif[r.lokomotif_id].status = "Tersedia"
+
+                # Update tanggal selesai
+                r.end_date = datetime.now().strftime("%Y-%m-%d (%H:%M)")
+                r.service_type = "Selesai"
+
+                # Logging service selesai
+                log_service("Selesaikan Service", r)
+
+                # Logging aktivitas karyawan
+                log_employee_action(
+                    current_user,
+                    current_role,
+                    "Selesaikan Service",
+                    {"lok_id": r.lokomotif_id, "customer": r.customer, "total_fee": r.total_fee})
+
+                print(f"\n\033[32mService untuk {r.lokomotif_id} ditandai selesai. Status lokomotif diperbarui ke\033[0m \033[32m'Tersedia'\033[0m")
+
+            print(f"\n\033[32mTotal {len(choices)} servis ditandai selesai.\033[0m")
         # Riwayat
         elif p == "4":
             if not store.services:
@@ -3029,43 +3368,64 @@ def service_menu():
                     print(f"    Tgl Selesai   : {r.end_date}")
                     print(f"    Total Biaya   : {format_rupiah(r.total_fee)}\n")
             pause()
-        # Hapus lokomotif (hapus plate)
+        # Hapus lokomotif
         elif p == "5":
+            if not check_access("admin"):
+                return
+
             print_lokomotif()
-            lok_id = input("ID lokomotif yang dihapus: ").strip().upper()
-            if lok_id in store.lokomotif:
-                lok = store.lokomotif[lok_id]
+            user_input = input("\nID/Nama lokomotif yang dihapus: ").strip().upper()
+            # cari lwt ID
+            lok = store.lokomotif.get(user_input)
+            # cari lwt nama
+            if not lok:
+                for obj in store.lokomotif.values():
+                    if obj.name.upper() == user_input:
+                        lok = obj
+                        break
+
+            if lok:
                 if lok.status == "Diservis":
-                    print("\033[31mLokomotif sedang diservis, tidak bisa dihapus\033[0m")
-                    continue
-                alasan_ops = {"1": "Rusak berat", "2": "Dijual", "3": "Hilang", "4": "Dokumen kadaluarsa", "5": "Lainnya"}
+                    print("\n\033[31mLokomotif sedang diservis, tidak bisa dihapus\033[0m")
+                    return
+
+                alasan_ops = {
+                    "1": "Rusak berat",
+                    "2": "Dijual",
+                    "3": "Hilang",
+                    "4": "Dokumen kadaluarsa",
+                    "5": "Lainnya"}
                 alasan_choice = input_menu("Alasan penghapusan", alasan_ops)
                 alasan = alasan_ops.get(alasan_choice, "Lainnya")
                 note = ""
                 if alasan == "Lainnya":
                     note = input("Keterangan tambahan: ").strip()
-                confirm = input(f"Yakin hapus lokomotif {lok.name}? (y/n): ").lower()
+
+                confirm = input(f"\nYakin hapus lokomotif {lok.name}? (y/n): ").lower()
                 if confirm == "y":
                     record = {
                         "date": datetime.now().strftime("%Y-%m-%d (%H:%M)"),
                         "operator": current_user,
-                        "lokomotif_id": lok_id,
+                        "lokomotif_id": lok.lokomotif_id,   # simpan ID asli
                         "name": lok.name,
                         "service_type": lok.service_type,
                         "reason": alasan,
-                        "note": note
-                    }
+                        "note": note}
                     with open("lokomotif_deletions.txt", "a") as f:
                         f.write(json.dumps(record) + "\n")
-                    del store.lokomotif[lok_id]
-                    print("\033[32mLokomotif berhasil dihapus\033[0m")
+                    del store.lokomotif[lok.lokomotif_id]
+                    print("\n\033[32mLokomotif berhasil dihapus\033[0m")
                 else:
-                    print("\033[33mPenghapusan dibatalkan\033[0m")
+                    print("\n\033[33mPenghapusan dibatalkan\033[0m")
             else:
-                print("\033[31mID tidak ditemukan\033[0m")
+                print(f"\n\033[31mLokomotif '{user_input}' tidak ditemukan\033[0m")
+        # Lihat notif dr inventaris
+        elif p == "6": lihat_pending_requests()
+        # Daftar Tunggu
+        elif p == "7": lihat_waiting_services()
         elif p == "0":
             return
-
+        
 # Rental (clear v.4.2.14)
 def rental_menu():
     while True:
