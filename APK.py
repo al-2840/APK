@@ -3078,9 +3078,9 @@ def employee_menu():
         h = head("KELOLA KARYAWAN")
         ops = {
             "1": "Lihat Karyawan",
-            "2": "Tambah Karyawan",
+            "2": "Tambah Karyawan", 
             "3": "Ubah Jabatan",
-            "4": "Hapus Karyawan",
+            "4": "Hapus Karyawan", # bisa pakai nama/username
             "5": "Cari Karyawan",
             "0": "Kembali"}
         choice = input_menu("Data Karyawan", ops)
@@ -3107,7 +3107,6 @@ def employee_menu():
             add_employee(name, role, address, phone)
             save_employees()
             print(f"\n\033[32mKaryawan {name} berhasil ditambahkan sebagai {role}\033[0m")
-
         # Ubah Jabatan
         elif choice == "3":
             print_employees()
@@ -3167,15 +3166,15 @@ def account_menu():
         if current_role == "admin":
             ops = {
                 "1": "Daftar Akun",
-                "2": "Tambah Akun",
-                "3": "Ubah   Role",
+                "2": "Tambah Akun", # ini
+                "3": "Ubah   Role", # tambah pilih bagian
                 "4": "Hapus  Akun",
                 "5": "Lihat  Profil",
-                "6": "Reset  Password",
-                "7": "Lupa   Password",
+                "6": "Reset  Password", # ini
+                "7": "Lupa   Password", # ini
                 "8": "Status Akun",
                 "9": "Cari   Akun",
-                "10": "Edit  Akun",
+                "10": "Edit  Akun", # karywan bisa edit profil
                 "0": "Kembali"}
         else:
             ops = {"1": "Lihat Profil", "2": "Ganti Password", "0": "Kembali"}
@@ -3625,9 +3624,8 @@ def food_menu():
             ops = {
                 "1": "Lihat menu",
                 "2": "Tambah menu",
-                "3": "Buat pesanan",
-                "4": "Riwayat Pesanan Makanan",
-                "5": "Hapus menu",
+                "3": "Riwayat Pesanan Makanan",
+                "4": "Hapus menu",
                 "0": "Kembali"}
         elif current_role == "pembeli":
             ops = {
@@ -3638,7 +3636,6 @@ def food_menu():
         else:
             print("\n\033[31mRole tidak berhak mengakses modul makanan\033[0m")
             return
-
         p = input_menu("Data Pesan Makanan", ops)
 
         # Lihat menu
@@ -3650,24 +3647,21 @@ def food_menu():
             pause()
 
         # Tambah menu (khusus admin/dapur)
-        elif p == "2" and current_role in ["admin", "dapur"]: tambah_makanan()
+        elif p == "2" and current_role in ["admin", "dapur"]:
+            tambah_makanan()
 
-        # Buat pesanan (pembeli/admin/dapur)
-        elif (p == "2" and current_role == "pembeli") or (p == "3" and current_role in ["admin","dapur"]):
-            if not check_access("pembeli") and not check_access("dapur"):
+        # Buat pesanan (khusus pembeli)
+        elif p == "2" and current_role == "pembeli":
+            if not check_access("pembeli"):
                 return
 
             customer_name = input("\nNama customer: ").strip()
             table_number = input("Nomor meja: ").strip()
             cart: List[Tuple[str, int]] = []
 
-            # tampilkan menu sesuai role
-            if current_role == "pembeli":
-                print_menu_items(hide_id=True)
-            else:
-                print_menu_items()
+            print_menu_items(hide_id=True)
 
-            print("\n\033[33mFormat input: NamaMenu (jumlah), pisahkan dengan koma\033[0m")
+            print("\n\033[33mFormat input: Menu (jumlah), pisahkan dengan koma\033[0m")
             print("\033[33mContoh: Nasi Goreng (4), Es Teh Manis (2)\033[0m")
 
             pesanan = input("\nPesanan: ").strip()
@@ -3709,20 +3703,18 @@ def food_menu():
             if not cart:
                 print("\n\033[33mKeranjang kosong\033[0m \033[47mBatal\033[0m")
                 return
+
             # Proses pembayaran makanan → catat ke food_orders
             proses_pembayaran_makanan(customer_name, table_number, cart)
 
         # Riwayat pesanan makanan
-        elif (p == "3" and current_role == "pembeli") or (p == "4" and current_role in ["admin","dapur"]):
+        elif (p == "3" and current_role == "pembeli") or (p == "3" and current_role in ["admin","dapur"]):
             if not store.food_orders:
                 print("\n\033[33mBelum ada pesanan\033[0m")
             else:
                 print("\n\033[34m>> RIWAYAT PESANAN MAKANAN:\033[0m\n")
-                # Header tabel
                 print(f"{'No':<4} | {'Tanggal':<20} | {'Waiter':<12} | {'Customer':<20} | {'Detail Pesanan':<40} | {'Total':<15}")
                 print("-"*120)
-
-                # Isi tabel
                 for idx, o in enumerate(store.food_orders, 1):
                     detail = []
                     for mid, qty in o.items:
@@ -3730,12 +3722,11 @@ def food_menu():
                         nm = menu_item.name if menu_item else f"[UNKNOWN:{mid}]"
                         detail.append(f"{nm} x{qty}")
                     detail_str = "; ".join(detail)
-
                     print(f"{idx:<4} | {o.date:<20} | {o.waiter:<12} | {o.customer_name:<20} | {detail_str:<40} | {format_rupiah(o.total):<15}")
             pause()
 
         # Hapus menu (khusus admin/dapur)
-        elif p == "5" and current_role in ["admin", "dapur"]:
+        elif p == "4" and current_role in ["admin", "dapur"]:
             print_menu_items()
             pilihan = input("\nID/Nama menu: ").strip()
             # Cari menu berdasarkan ID
