@@ -2,7 +2,7 @@
 Aplikasi       : ? (?) - Versi 4.3.0 (target max fix, MAJOR.MINOR.PATCH)
 Fitur          : Mengelola inventaris, karyawan, penjualan, service mobil, dan pemesanan makanan, semuanya terintegrasi dengan laporan ringkas di dashboard.
 Penulis        : 2840 & 2835
-Versi (update) : 4.2.16
+Versi (update) : 4.2.17
 """
 import sys
 import time
@@ -187,7 +187,6 @@ def find_item(query: str, warehouse_id: str = None):
         # cari berdasarkan ID
         if kw.upper() in store.inventory:
             item = store.inventory[kw.upper()]
-            # kalau ada warehouse_id, cek stok gudang
             if warehouse_id:
                 wh = store.warehouses.get(warehouse_id)
                 if wh and item.item_id in wh.stock:
@@ -196,9 +195,9 @@ def find_item(query: str, warehouse_id: str = None):
                 results.append(item)
             continue
 
-        # cari berdasarkan nama
+        # cari berdasarkan nama (persis atau substring)
         for item in store.inventory.values():
-            if item.name.lower() == kw:
+            if item.name.lower() == kw or kw in item.name.lower():
                 if warehouse_id:
                     wh = store.warehouses.get(warehouse_id)
                     if wh and item.item_id in wh.stock:
@@ -214,7 +213,14 @@ def find_item(query: str, warehouse_id: str = None):
 def find_warehouse(query: str):
     q = query.strip().lower()
     for wh in store.warehouses.values():
-        if wh.warehouse_id.lower() == q or wh.name.lower() == q:
+        # Cocokkan ID persis
+        if wh.warehouse_id.lower() == q:
+            return wh
+        # Cocokkan nama persis
+        if wh.name.lower() == q:
+            return wh
+        # Cocokkan sebagian nama (substring)
+        if q in wh.name.lower():
             return wh
     return None
 
@@ -374,21 +380,32 @@ def konfirmasi_stok_gudang():
         old_qty = old_data.get("qty", 0)
         old_status = old_data.get("status", "Pending")
 
-        # Update stok gudang
+        # Update stok gudang (lengkap dengan kategori & harga)
         store.warehouses[wh_id].stock[item.item_id] = {
             "qty": qty_real,
-            "status": old_status}
+            "status": old_status,
+            "price": item.price,
+            "category": item.category
+        }
 
         # Sinkronisasi ke inventaris
         store.inventory[item.item_id].confirmed_stock = qty_real
 
-        # Catat log
+        # Catat log gudang
         log_warehouse(
             "Konfirmasi Stok Gudang",
             item.item_id,
-            extra={"warehouse": wh_id, "old_qty": old_qty, "new_qty": qty_real})
+            extra={"warehouse": wh_id, "old_qty": old_qty, "new_qty": qty_real}
+        )
 
-        print(f"\n\033[32mStok {item.name} di {wh_id} dikonfirmasi: {qty_real} unit\033[0m")
+        # Catat log inventaris
+        log_inventory(
+            "Audit Stok Barang",
+            item,
+            {"warehouse": wh_id, "old_qty": old_qty, "new_qty": qty_real}
+        )
+
+        print(f"\n\033[32mStok {item.name} di {wh_id} dikonfirmasi: {old_qty} → {qty_real} unit\033[0m")
 
 def print_stock_per_warehouse(wh_id=None):
     print("\n\033[34m>> STOK PER GUDANG:\033[0m")
@@ -399,17 +416,20 @@ def print_stock_per_warehouse(wh_id=None):
         if not w.stock:
             print("\033[31m- KOSONG -\033[0m")
         else:
-            print(f"{'ID':<8} | {'Nama':<20} | {'Jumlah':<6} | {'Harga Beli':<12} | {'Kategori':<15} | {'Kondisi':<12}")
-            print("-"*85)
+            print(f"{'ID':<8} | {'Nama':<20} | {'Jumlah':<6} | {'Harga Beli':<15} | {'Kategori':<15} | {'Kondisi':<12}")
+            print("-"*90)
             for item_id, data in w.stock.items():
                 item = store.inventory.get(item_id)
                 if not item:
                     nama, harga, kategori = "Unknown", "-", "-"
                 else:
-                    nama, harga, kategori = item.name, f"Rp {item.price:,}", KATEGORI_LIST.get(str(item.category), item.category)
+                    nama = item.name
+                    harga = format_rupiah(item.price)   # ✅ konsisten dengan nota
+                    kategori = KATEGORI_LIST.get(str(item.category), item.category)
 
                 qty = data.get("qty", 0)
                 status = data.get("status") or getattr(item, "status", "Pending")
+
                 # Warna status
                 if status.lower() == "baik":
                     status_colored = f"\033[32m{status}\033[0m"
@@ -417,7 +437,8 @@ def print_stock_per_warehouse(wh_id=None):
                     status_colored = f"\033[33m{status}\033[0m"
                 else:
                     status_colored = f"\033[31m{status}\033[0m"
-                print(f"{item_id:<8} | {nama:<20} | {qty:<6} | {harga:<12} | {kategori:<15} | {status_colored:<12}")
+
+                print(f"{item_id:<8} | {nama:<20} | {qty:<6} | {harga:<15} | {kategori:<15} | {status_colored:<12}")
 
 def print_warehouses():
     print("\n\033[34m>> DAFTAR GUDANG:\033[0m")
@@ -426,14 +447,14 @@ def print_warehouses():
         return
 
     # Header tabel
-    print(f"{'ID':<8} | {'Nama Gudang':<20} | {'Alamat':<30}")
-    print("-"*65)
+    print(f"{'ID':<8} | {'Nama Gudang':<20} | {'Alamat':<30} | {'Default':<10}")
+    print("-"*75)
 
     # Isi tabel
     default_wh = getattr(store, "default_warehouse", "WH01")
     for w in store.warehouses.values():
-        mark = " *DEFAULT*" if w.warehouse_id == default_wh else ""
-        print(f"{w.warehouse_id:<8} | {w.name:<20} | {w.address:<30}{mark}")
+        mark = "Ya" if w.warehouse_id == default_wh else ""
+        print(f"{w.warehouse_id:<8} | {w.name:<20} | {w.address:<30} | {mark:<10}")
 
 def lihat_pending_requests():
     print("\n\033[34m>> PERMINTAAN PENDING DARI SERVIS:\033[0m")
@@ -451,7 +472,16 @@ def lihat_pending_requests():
         # Isi tabel
         for idx, line in enumerate(lines, 1):
             req = json.loads(line.strip())
-            print(f"{idx:<4} | {req['date']:<20} | {req['item_id']:<10} | {req['qty_requested']:<5} | {req['operator']:<15} | {req['status']:<20}")
+            status = req['status']
+            # Warna status
+            if status.lower() in ["siap jual", "ready"]:
+                status_colored = f"\033[32m{status}\033[0m"
+            elif status.lower() == "pending":
+                status_colored = f"\033[33m{status}\033[0m"
+            else:
+                status_colored = f"\033[31m{status}\033[0m"
+
+            print(f"{idx:<4} | {req['date']:<20} | {req['item_id']:<10} | {req['qty_requested']:<5} | {req['operator']:<15} | {status_colored:<20}")
 
         # Input pilihan
         user_input = input("\nPilih nomor permintaan untuk approve (Enter/0 = batal, bisa banyak: 1,3,5): ").strip()
@@ -480,6 +510,9 @@ def lihat_pending_requests():
                     item.status = "Siap Jual"
                     print(f"\033[32mBarang {item.item_id} ({item.name}) dikonfirmasi SIAP JUAL oleh Inventaris\033[0m")
 
+                    # catat log
+                    log_inventory("Konfirmasi Siap Jual", item, {"qty": req['qty_requested'], "operator": req['operator']})
+
                     # update waiting_services.txt → ubah status jadi Ready
                     try:
                         with open("waiting_services.txt", "r", encoding="utf-8") as wf:
@@ -487,18 +520,15 @@ def lihat_pending_requests():
                         updated_lines = []
                         for wline in waiting_lines:
                             srv = json.loads(wline.strip())
-                            # cek apakah sparepart ini ada di parts
-                            if req['item_id'] in " ".join(srv['parts']):
+                            if req['item_id'] in srv.get('parts', []):
                                 srv['status'] = "Ready"
-                                # hapus label (Pending) di parts
                                 srv['parts'] = [p.replace("(Pending)", "") for p in srv['parts']]
                                 print(f"\033[32mServis {srv['service_id']} sekarang READY\033[0m")
                             updated_lines.append(json.dumps(srv) + "\n")
                         with open("waiting_services.txt", "w", encoding="utf-8") as wf:
                             wf.writelines(updated_lines)
                     except FileNotFoundError:
-                        pass  # kalau belum ada waiting_services.txt
-
+                        pass
                 else:
                     print(f"\033[31mBarang {req['item_id']} tidak valid (stok/harga belum ada)\033[0m")
             else:
@@ -1905,9 +1935,10 @@ def forgot_password():
 
     temp_pass = str(random.randint(100000, 999999))
     users[username]["password"] = temp_pass
+    users[username]["temporary"] = True
     save_users()
 
-    print(f"\n\033[32mPassword akun '{username}' berhasil direset ke sementara: {temp_pass}\033[0m")
+    print(f"\n\033[32mPassword akun '{username}' direset ke sementara: {temp_pass}\033[0m")
     print("\033[33mUser wajib login dengan password sementara lalu mengganti password sendiri\033[0m")
 
 def list_accounts(simple=False):
@@ -2081,6 +2112,105 @@ def update_last_login(uname: str):
         with open("login_history.txt", "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
+def request_password_reset():
+    global current_user, users
+    print("\n\033[44m=========== PERMINTAAN RESET PASSWORD ===========\033[0m")
+
+    if not current_user:
+        print("\n\033[31mAnda harus login terlebih dahulu\033[0m")
+        return
+
+    username = current_user
+    record = {
+        "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "username": username,
+        "status": "Pending"
+    }
+    with open("password_requests.txt", "a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    print(f"\n\033[33mPermintaan reset password untuk akun '{username}' telah dikirim ke Admin.\033[0m")
+    print("\033[33mTunggu password sementara dari Admin.\033[0m")
+
+def process_password_requests():
+    global users
+    print("\n\033[44m=========== PROSES PERMINTAAN RESET PASSWORD ===========\033[0m")
+
+    try:
+        with open("password_requests.txt", "r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except FileNotFoundError:
+        print("\033[31mTidak ada permintaan reset password\033[0m")
+        return
+
+    if not lines:
+        print("\033[33mTidak ada permintaan reset password\033[0m")
+        return
+
+    print(f"{'No':<4} | {'Tanggal':<20} | {'Username':<15} | {'Status':<10}")
+    print("-"*55)
+    for idx, line in enumerate(lines, 1):
+        req = json.loads(line.strip())
+        print(f"{idx:<4} | {req['date']:<20} | {req['username']:<15} | {req['status']:<10}")
+
+    choice = input("\nPilih nomor permintaan untuk diproses (Enter= batal): ").strip()
+    if not choice.isdigit():
+        print("\033[33mDibatalkan.\033[0m")
+        return
+
+    idx = int(choice)
+    if idx < 1 or idx > len(lines):
+        print("\033[31mNomor tidak valid\033[0m")
+        return
+
+    req = json.loads(lines[idx-1].strip())
+    username = req["username"]
+
+    if username not in users:
+        print("\033[31mUsername tidak ditemukan\033[0m")
+        return
+
+    # Generate password sementara
+    temp_pass = str(random.randint(100000, 999999))
+    users[username]["password"] = temp_pass
+    save_users()
+
+    # Update status permintaan
+    req["status"] = "Selesai"
+    lines[idx-1] = json.dumps(req) + "\n"
+    with open("password_requests.txt", "w", encoding="utf-8") as f:
+        f.writelines(lines)
+
+    print(f"\n\033[32mPassword akun '{username}' direset ke sementara: {temp_pass}\033[0m")
+    print("\033[33mUser wajib login dengan password sementara lalu mengganti password sendiri.\033[0m")
+
+def force_change_password(username):
+    while True:
+        new_pass = input("Password baru: ").strip()
+        if not new_pass:
+            print("\033[31mPassword tidak boleh kosong\033[0m")
+            continue
+        confirm_pass = input("Konfirmasi password baru: ").strip()
+        if confirm_pass != new_pass:
+            print("\033[31mPassword tidak cocok, coba lagi\033[0m")
+            continue
+        break
+
+    users[username]["password"] = new_pass
+    users[username]["temporary"] = False   # hapus flag password sementara
+    save_users()
+
+    # catat log aktivitas
+    with open("password_resets.txt", "a", encoding="utf-8") as f:
+        record = {
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "username": username,
+            "action": "Force Change Password"
+        }
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    print(f"\n\033[32mPassword akun '{username}' berhasil diganti permanen\033[0m")
+
 # Login
 def login():
     global current_user, current_role
@@ -2093,19 +2223,26 @@ def login():
         p = input("Password: ").strip()
 
         if u in users and users[u]["password"] == p:
+            # cek status akun
+            if users[u].get("status", "Aktif") != "Aktif":
+                print("\n\033[31mAkun Anda belum aktif. Hubungi admin untuk aktivasi.\033[0m")
+                return
+
             emp_id = users[u].get("employee_id")
             emp = store.employees.get(emp_id) if emp_id else None
 
             current_user = u
-            # pastikan role selalu lowercase agar cocok dengan main_menu
             role_val = users[u].get("role", emp.role if emp else "pembeli")
             current_role = role_val.lower()
-
             emp_name = emp.name if emp else u.capitalize()
-            print(f"\n\033[32mLogin berhasil sebagai \033[33m{emp_name}\033[32m (role: {current_role})\033[0m")
 
-            # debug tambahan untuk memastikan role benar
-            print(f"[DEBUG] current_user={current_user}, current_role={current_role}")
+            # cek apakah password sementara
+            if users[u].get("temporary", False):
+                print(f"\n\033[33mAnda login dengan password sementara. Silakan ganti password permanen sekarang.\033[0m")
+                force_change_password(u)
+                return
+
+            print(f"\n\033[32mLogin berhasil sebagai \033[33m{emp_name}\033[32m (role: {current_role})\033[0m")
             update_last_login(u)
             return
         else:
@@ -2117,9 +2254,6 @@ def logout():
     current_user, current_role = None, None
     print("\n\033[32mBerhasil logout. Silakan login kembali.\033[0m")
     return
-
-# Delelte User uv.3.3
-
 
 # Utk transaksi
 def safe_load_json_line(line: str):
@@ -2330,17 +2464,25 @@ def add_menu(name: str, stock: int, price: int, silent=False):
         print(f"\n\033[32mMenu {name} ditambahkan dengan ID {menu_id}, dengan stok {stock}\033[0m")
 
 def add_warehouse(name: str, address: str, silent=False):
-    # cek duplikat
+    # cek duplikat nama gudang
     for w in store.warehouses.values():
         if w.name.lower() == name.lower():
             print(f"\n\033[31mGudang dengan nama '{name}' sudah ada (ID: {w.warehouse_id})\033[0m")
-            return
-    # generate ID unik
-    wid = f"W{len(store.warehouses)+1:03}"
+            return None
+
+    # generate ID unik (misalnya W001, W002, dst)
+    wid = f"W{len(store.warehouses) + 1:03}"
+
+    # buat objek Warehouse dengan ID, nama, dan alamat
     store.warehouses[wid] = Warehouse(wid, name, address)
+
+    # log otomatis
+    log_warehouse("Tambah Gudang", item_id="N/A", extra={"id": wid, "name": name, "address": address})
 
     if not silent:
         print(f"\n\033[32mGudang {name} ditambahkan dengan ID {wid}\033[0m")
+
+    return store.warehouses[wid]
 
 def hapus_edit_transaksi():
     if current_role != "admin":
@@ -2782,26 +2924,46 @@ def inventory_menu():
                     item_id=item_id,
                     name=name,
                     price=harga_beli,
-                    category=category_code)
+                    category=category_code
+                )
                 store.inventory[item_id].confirmed_stock = jumlah
 
-                # integrasi gudang pusat
-                default_wh = getattr(store, "default_warehouse", "WH01")
-                if default_wh not in store.warehouses:
-                    store.warehouses[default_wh] = Warehouse(default_wh, "Gudang Utama")
+                # Pilih gudang tujuan
+                print_warehouses()
+                wh_input = input("\nMasukkan ID/Nama gudang (Enter = default): ").strip()
+                if not wh_input:
+                    default_wh = getattr(store, "default_warehouse", "WH01")
+                    warehouse = store.warehouses.get(default_wh)
+                    if not warehouse:
+                        warehouse = Warehouse(default_wh, "Gudang Utama", "-")
+                        store.warehouses[default_wh] = warehouse
+                else:
+                    warehouse = find_warehouse(wh_input)
+                    if not warehouse:
+                        print("\033[31mGudang tidak ditemukan, barang masuk ke gudang default\033[0m")
+                        default_wh = getattr(store, "default_warehouse", "WH01")
+                        warehouse = store.warehouses.get(default_wh)
+                        if not warehouse:
+                            warehouse = Warehouse(default_wh, "Gudang Utama", "-")
+                            store.warehouses[default_wh] = warehouse
 
-                store.warehouses[default_wh].stock[item_id] = {
+                # Simpan stok ke gudang yang dipilih
+                warehouse.stock[item_id] = {
                     "qty": jumlah,
                     "status": "Pending",
                     "price": harga_beli,
-                    "category": category_code}
+                    "category": category_code
+                }
 
-                log_warehouse("Barang Masuk Gudang", item_id, extra={"warehouse": default_wh, "qty": jumlah, "price": harga_beli})
-                print(f"\n\033[32mBarang {name} otomatis ditambahkan ke gudang {default_wh}\033[0m")
+                log_warehouse("Barang Masuk Gudang", item_id,
+                            extra={"warehouse": warehouse.warehouse_id, "qty": jumlah, "price": harga_beli})
+                print(f"\n\033[32mBarang {name} otomatis ditambahkan ke gudang {warehouse.warehouse_id}\033[0m")
 
                 # Log inventaris
-                log_inventory("Tambah Barang", store.inventory[item_id], {"jumlah": jumlah, "harga": harga_beli, "kategori": category_code, "status": "Pending"})
-                log_employee_action(current_user, current_role, "Tambah Barang", {"item": name, "qty": jumlah})
+                log_inventory("Tambah Barang", store.inventory[item_id],
+                            {"jumlah": jumlah, "harga": harga_beli, "kategori": category_code, "status": "Pending"})
+                log_employee_action(current_user, current_role, "Tambah Barang",
+                                    {"item": name, "qty": jumlah})
             # Ubah/Hapus Barang
             elif choice == "3":
                 print_inventory()
@@ -2997,7 +3159,7 @@ def warehouse_menu():
             h = head("MENU GUDANG (Admin)")
             ops = {
                 "1": "Daftar gudang",
-                "2": "Tambah gudang",
+                "2": "Tambah gudang", # buat opsi klo enter batal
                 "3": "Set Default Gudang",
                 "4": "Lihat stok per gudang",
                 "9": "Kembali"}
@@ -3009,6 +3171,9 @@ def warehouse_menu():
             # Tambah gudang
             elif choice == "2":
                 name = input("\nNama gudang: ").strip()
+                if not name:
+                    print("\033[31mInput dibatalkan\033[0m")
+                    continue
                 address = input("Alamat gudang: ").strip()
                 add_warehouse(name, address)
                 log_warehouse("Tambah Gudang", item_id="N/A", extra={"name": name, "address": address})
@@ -3057,32 +3222,63 @@ def employee_menu():
 
         # Lihat Karyawan
         if choice == "1":
-            print(f"{'ID (EMP)':<8} | {'Nama':<15} | {'Role':<10} | {'Alamat':<20} | {'Telp':<12} | {'Status':<10}")
-            print("-"*80)
-            for eid, emp in store.employees.items():
-                print(f"{eid:<8} | {emp.name:<15} | {emp.role:<10} | {emp.address:<20} | {emp.phone:<12} | {getattr(emp,'status','Aktif'):<10}")
+            print("\n\033[34m>> DAFTAR KARYAWAN:\033[0m")
+            if not store.employees:
+                print("\033[31m- KOSONG -\033[0m")
+            else:
+                # Header tabel
+                print(f"{'ID (EMP)':<8} | {'Nama':<20} | {'Role':<12} | {'Alamat':<25} | {'Telp':<15} | {'Status':<10}")
+                print("-"*100)
+                # Isi tabel
+                for eid, emp in store.employees.items():
+                    status = getattr(emp, "status", "Aktif")
+                    # Warna status
+                    if status.lower() == "aktif":
+                        status_colored = f"\033[32m{status}\033[0m"
+                    elif status.lower() == "pending":
+                        status_colored = f"\033[33m{status}\033[0m"
+                    else:
+                        status_colored = f"\033[31m{status}\033[0m"
+
+                    print(f"{eid:<8} | {emp.name:<20} | {emp.role:<12} | {emp.address:<25} | {emp.phone:<15} | {status_colored:<10}")
+
             pause()
         # Tambah Karyawan
         elif choice == "2":
+            print("\n\033[34m>> Tambah Karyawan (Enter kosong = batal)\033[0m")
+
+            # Input nama
             name = input("\nNama: ").strip()
             if not name:
-                print("\n\033[31mNama tidak boleh kosong\033[0m")
+                print("\033[33mDibatalkan. Nama tidak diisi.\033[0m")
                 continue
 
             # Pilihan role dengan angka
             print("\nPilih Jabatan:")
             for i, r in enumerate(valid_roles, 1):
                 print(f"{i}. {r}")
-            role_choice = input("Nomor jabatan: ").strip()
+            role_choice = input("Nomor jabatan (Enter = batal): ").strip()
+            if not role_choice:
+                print("\033[33mDibatalkan. Jabatan tidak dipilih.\033[0m")
+                continue
             if not role_choice.isdigit() or int(role_choice) < 1 or int(role_choice) > len(valid_roles):
-                print("\n\033[31mPilihan jabatan tidak valid\033[0m")
+                print("\033[31mPilihan jabatan tidak valid\033[0m")
                 continue
             role = valid_roles[int(role_choice) - 1]
 
-            address = input("Alamat: ").strip()
-            phone = input("No. Telepon: ").strip()
+            # Input alamat
+            address = input("Alamat (Enter = batal): ").strip()
+            if not address:
+                print("\033[33mDibatalkan. Alamat tidak diisi.\033[0m")
+                continue
 
-            # status default → Menunggu Aktivasi
+            # Input telepon
+            phone = input("No. Telepon (Enter = batal): ").strip()
+            if not phone:
+                print("\033[33mDibatalkan. Nomor telepon tidak diisi.\033[0m")
+                continue
+
+            # Status default → Menunggu Aktivasi
             add_employee(name, role, address, phone, status="Menunggu Aktivasi")
             save_employees()
 
@@ -3091,7 +3287,11 @@ def employee_menu():
         # Ubah Jabatan/Status
         elif choice == "3":
             print_employees()
-            keyword = input("\nID/Nama karyawan: ").strip().upper()
+            keyword = input("\nID/Nama karyawan (Enter = batal): ").strip().upper()
+            if not keyword:
+                print("\033[33mDibatalkan oleh user.\033[0m")
+                continue
+
             target_id = None
             # Cari berdasarkan ID atau Nama
             if keyword in store.employees:
@@ -3101,36 +3301,55 @@ def employee_menu():
                     if emp.name.upper() == keyword:
                         target_id = eid
                         break
+
             if not target_id:
                 print(f"\n\033[31mKaryawan {keyword} tidak ditemukan\033[0m")
                 continue
+
             emp = store.employees[target_id]
+
             # Ubah nama
-            new_name = input(f"Nama baru (Enter = tetap {emp.name}): ").strip()
+            new_name = input(f"Nama baru (Enter = tetap {emp.name}, ketik '-' untuk batal): ").strip()
+            if new_name == "-":
+                print("\033[33mEdit dibatalkan.\033[0m")
+                continue
             if new_name:
                 emp.name = new_name
+
             # Ubah role
-            print("\nPilih Jabatan baru:")
+            print("\nPilih Jabatan baru (Enter = tetap):")
             for i, r in enumerate(valid_roles, 1):
                 print(f"{i}. {r}")
             role_choice = input("Nomor jabatan: ").strip()
-            if role_choice.isdigit() and 1 <= int(role_choice) <= len(valid_roles):
-                emp.role = valid_roles[int(role_choice) - 1]
+            if role_choice:
+                if role_choice.isdigit() and 1 <= int(role_choice) <= len(valid_roles):
+                    emp.role = valid_roles[int(role_choice) - 1]
+                else:
+                    print("\033[31mPilihan jabatan tidak valid. Role tidak diubah.\033[0m")
+
             # Ubah status
-            print("\nPilih Status:")
+            print("\nPilih Status baru (Enter = tetap):")
             for i, s in status_ops.items():
                 print(f"{i}. {s}")
             status_choice = input("Nomor status: ").strip()
-            if status_choice in status_ops:
-                emp.status = status_ops[status_choice]
+            if status_choice:
+                if status_choice in status_ops:
+                    emp.status = status_ops[status_choice]
+                else:
+                    print("\033[31mPilihan status tidak valid. Status tidak diubah.\033[0m")
+
             save_employees()
             print(f"\n\033[32mData karyawan {target_id} diperbarui\033[0m")
         # Hapus Karyawan
         elif choice == "4":
             print_employees()
-            keyword = input("\nID/Nama karyawan yang dihapus: ").strip().upper()
-            target_id = None
+            keyword = input("\nID/Nama karyawan yang dihapus (Enter = batal): ").strip().upper()
+            if not keyword:
+                print("\033[33mDibatalkan oleh user.\033[0m")
+                continue
 
+            target_id = None
+            # Cari berdasarkan ID atau Nama
             if keyword in store.employees:
                 target_id = keyword
             else:
@@ -3139,68 +3358,81 @@ def employee_menu():
                         target_id = eid
                         break
 
-            if target_id:
-                alasan_ops = {
-                    "1": "Resign",
-                    "2": "PHK",
-                    "3": "Meninggal",
-                    "4": "Lainnya"
-                }
-                alasan_choice = input_menu("Alasan penghapusan", alasan_ops)
-                alasan = alasan_ops.get(alasan_choice, "Lainnya")
-                note = ""
-                if alasan == "Lainnya":
-                    note = input("Keterangan tambahan: ").strip()
-
-                confirm = input(f"Yakin hapus karyawan {target_id} ({store.employees[target_id].name})? (y/n): ").lower()
-                if confirm == "y":
-                    record = {
-                        "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                        "operator": current_user,
-                        "emp_id": target_id,
-                        "name": store.employees[target_id].name,
-                        "role": store.employees[target_id].role,
-                        "reason": alasan,
-                        "note": note
-                    }
-                    with open("employee_deletions.txt", "a", encoding="utf-8") as f:
-                        f.write(json.dumps(record, ensure_ascii=False) + "\n")
-
-                    # hapus akses akun juga
-                    if target_id in store.accounts:
-                        del store.accounts[target_id]
-
-                    del store.employees[target_id]
-                    save_employees()
-                    print("\n\033[32mKaryawan dihapus dan akses akun dicabut\033[0m")
-                else:
-                    print(f"\n\033[33mPenghapusan karyawan {target_id} dibatalkan\033[0m")
-            else:
+            if not target_id:
                 print(f"\033[31mKaryawan '{keyword}' tidak ditemukan\033[0m")
+                continue
+
+            # Pilihan alasan
+            alasan_ops = {
+                "1": "Resign",
+                "2": "PHK",
+                "3": "Meninggal",
+                "4": "Lainnya"}
+            alasan_choice = input_menu("Alasan penghapusan", alasan_ops)
+            alasan = alasan_ops.get(alasan_choice, "Lainnya")
+            note = ""
+            if alasan == "Lainnya":
+                note = input("Keterangan tambahan (Enter = kosong): ").strip()
+
+            # Konfirmasi
+            emp_name = store.employees[target_id].name
+            confirm = input(f"Yakin hapus karyawan {target_id} ({emp_name})? (y/n, Enter = batal): ").lower()
+            if confirm == "y":
+                record = {
+                    "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "operator": current_user,
+                    "emp_id": target_id,
+                    "name": emp_name,
+                    "role": store.employees[target_id].role,
+                    "reason": alasan,
+                    "note": note}
+                with open("employee_deletions.txt", "a", encoding="utf-8") as f:
+                    f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+                # hapus akses akun juga
+                if target_id in store.accounts:
+                    del store.accounts[target_id]
+
+                del store.employees[target_id]
+                save_employees()
+                print("\n\033[32mKaryawan dihapus dan akses akun dicabut\033[0m")
+            else:
+                print(f"\n\033[33mPenghapusan karyawan {target_id} dibatalkan\033[0m")
         # Cari Karyawan
         elif choice == "5":
-            keyword = input("\nID/Nama Karyawan: ").strip().lower()
+            keyword = input("\nID/Nama Karyawan (Enter = batal): ").strip().lower()
+            if not keyword:
+                print("\033[33mDibatalkan oleh user.\033[0m")
+                continue
+
             found = False
-            print(f"{'ID (EMP)':<8} | {'Nama':<15} | {'Role':<10} | {'Alamat':<20} | {'Telp':<12} | {'Status':<10}")
-            print("-"*80)
+            print(f"{'ID (EMP)':<8} | {'Nama':<20} | {'Role':<12} | {'Alamat':<25} | {'Telp':<15} | {'Status':<10}")
+            print("-"*100)
             for eid, emp in store.employees.items():
                 if keyword in eid.lower() or keyword in emp.name.lower():
-                    print(f"{eid:<8} | {emp.name:<15} | {emp.role:<10} | {emp.address:<20} | {emp.phone:<12} | {getattr(emp,'status','Aktif'):<10}")
+                    status = getattr(emp, 'status', 'Aktif')
+                    if status.lower() == "aktif":
+                        status_colored = f"\033[32m{status}\033[0m"
+                    elif status.lower() == "pending":
+                        status_colored = f"\033[33m{status}\033[0m"
+                    else:
+                        status_colored = f"\033[31m{status}\033[0m"
+
+                    print(f"{eid:<8} | {emp.name:<20} | {emp.role:<12} | {emp.address:<25} | {emp.phone:<15} | {status_colored:<10}")
                     found = True
             if not found:
-                print(f"\n\033[31mKaryawan {keyword} tidak ditemukan\033[0m")
+                print(f"\n\033[31mKaryawan '{keyword}' tidak ditemukan\033[0m")
             pause()
         elif choice == "0":
             return
         
-# AKUN (clear v.4.1.16)
+# AKUN (clear v.4.1.17)
 def account_menu():
     global current_user, current_role
     if current_user not in users:
         print(f"\n\033[31mAkun '{current_user}' tidak ditemukan atau sudah dihapus\033[0m")
         current_user, current_role = None, None
         return
-
     while True:
         h = head("MANAJEMEN AKUN")
 
@@ -3210,16 +3442,18 @@ def account_menu():
                 "2": "Tambah Akun",
                 "3": "Ubah Role",
                 "4": "Hapus Akun",
-                "5": "Lihat Profil",
-                "6": "Reset Password",
-                "7": "Lupa Password",
-                "8": "Status Akun",
-                "9": "Cari Akun",
-                "10": "Edit Akun",
-                "0": "Kembali"
-            }
+                "5": "Lihat/Edit Profil",
+                "6": "Manajemen Password",
+                "7": "Status Akun",
+                "8": "Cari Akun",
+                "0": "Kembali"}
         else:
-            ops = {"1": "Lihat Profil", "2": "Ganti Password", "0": "Kembali"}
+            ops = {
+                "1": "Lihat Profil",
+                "2": "Edit Profil",
+                "3": "Ganti Password",
+                "4": "Lupa Password",
+                "0": "Kembali"}
             user_data = users.get(current_user)
             if not user_data:
                 print(f"\n\033[31mAkun '{current_user}' tidak ditemukan atau sudah dihapus\033[0m")
@@ -3229,54 +3463,67 @@ def account_menu():
             print(f"\n\033[34mStatus akun Anda saat ini: {user_status}\033[0m")
             if user_status != "Aktif":
                 print("\n\033[31mAkun Anda belum aktif, hubungi admin untuk aktivasi\033[0m")
-
+        
         choice = input_menu("Kelola Akun", ops)
 
         # Admin menu
         if current_role == "admin":
-            if choice == "1":
-                list_accounts()
-
-            elif choice == "2":
-                tambah_akun()
-
-            elif choice == "3":
-                ubah_role()
-
-            elif choice == "4":
-                hapus_akun()
-
+            if choice == "1": list_accounts()
+            elif choice == "2": tambah_akun()
+            elif choice == "3": ubah_role()
+            elif choice == "4": hapus_akun()
             elif choice == "5":
-                lihat_profil()
+                keyword = input("\nID/Nama: ").strip()
+                if not keyword:
+                    print("\n\033[33mDibatalkan oleh user.\033[0m")
+                    continue
 
+                target_id = None
+                if keyword.upper() in store.employees:
+                    target_id = keyword.upper()
+                else:
+                    # Cari berdasarkan nama
+                    for eid, emp in store.employees.items():
+                        if emp.name.lower() == keyword.lower():
+                            target_id = eid
+                            break
+
+                if target_id:
+                    edit_profil(target_id, current_user, current_role)
+                else:
+                    print(f"\n\033[31mKaryawan '{keyword}' tidak ditemukan\033[0m")
             elif choice == "6":
-                reset_password()
-
-            elif choice == "7":
-                forgot_password()
-
+                # Submenu password
+                pw_ops = {
+                    "1": "Reset Password",
+                    "2": "Lupa Password (Admin)",
+                    "3": "Proses Permintaan Reset",
+                    "0": "Kembali"}
+                sub_choice = input_menu("Manajemen Password", pw_ops)
+                if sub_choice == "1": reset_password()
+                elif sub_choice == "2": forgot_password()
+                elif sub_choice == "3": process_password_requests()
+            elif choice == "7": set_account_status()
             elif choice == "8":
-                set_account_status()
-
-            elif choice == "9":
                 keyword = input("\nUsername/Nama karyawan: ").strip().lower()
                 if keyword:
                     search_account(keyword)
                 else:
                     print("\n\033[31mInput tidak boleh kosong\033[0m")
-
-            elif choice == "10":
-                edit_profil()
-
             elif choice == "0":
                 return
 
-        # Non-admin menu
+        # Karyawan menu
         else:
             if choice == "1":
                 lihat_profil(users[current_user]["employee_id"], current_user, current_role)
             elif choice == "2":
+                emp_id = users[current_user]["employee_id"]
+                edit_profil(emp_id, current_user, current_role)
+            elif choice == "3":
                 reset_password()
+            elif choice == "4":
+                request_password_reset()
             elif choice == "0":
                 return
 
@@ -3391,16 +3638,17 @@ def service_menu():
             if not store.services:
                 print("\n\033[33mBelum ada service\033[0m")
             else:
-                print("\n>> Riwayat Service:")
+                print("\n\033[34m>> RIWAYAT SERVICE:\033[0m")
+
+                # Header tabel
+                print(f"{'No':<4} | {'Customer':<20} | {'Lokomotif':<20} | {'Jenis':<15} | {'Durasi':<8} | {'Mulai':<12} | {'Selesai':<12} | {'Biaya':<15}")
+                print("-"*115)
+
+                # Isi tabel
                 for idx, r in enumerate(store.services, 1):
                     lok = store.lokomotif.get(r.lokomotif_id)
-                    print(f"{idx}. Customer      : {r.customer}")
-                    print(f"    Lokomotif     : {lok.name if lok else r.lokomotif_id}")
-                    print(f"    Jenis Service : {r.service_type}")
-                    print(f"    Durasi        : {r.days} hari")
-                    print(f"    Tgl Mulai     : {r.start_date}")
-                    print(f"    Tgl Selesai   : {r.end_date}")
-                    print(f"    Total Biaya   : {format_rupiah(r.total_fee)}\n")
+                    lok_name = lok.name if lok else r.lokomotif_id
+                    print(f"{idx:<4} | {r.customer:<20} | {lok_name:<20} | {r.service_type:<15} | {str(r.days)+' hari':<8} | {r.start_date:<12} | {r.end_date:<12} | {format_rupiah(r.total_fee):<15}")
             pause()
         # Hapus lokomotif
         elif p == "5":
