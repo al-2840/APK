@@ -2,7 +2,7 @@
 Aplikasi       : INTEGRA - Versi 4.3.0 (target max fix, MAJOR.MINOR.PATCH)
 Fitur          : menu modular, akun/pegawai, inventori, service/rental, laporan/nota; modul = os, datetime, sys, plus fungsi custom
 Penulis        : 2835 & 2840 (Aji Mulyadi & Muhammad Ali Muzaki) 
-Versi (update) : 4.2.19
+Versi (update) : 4.2.20
 """
 import sys
 import time
@@ -177,7 +177,8 @@ def kategori_color(kategori):
 
 # Inventaris & Gudang
 def find_item(query: str, warehouse_id: str = None):
-    keywords = [q.strip().lower() for q in query.split(",")]
+    # buang token kosong
+    keywords = [q.strip().lower() for q in query.split(",") if q.strip()]
     results = []
 
     for kw in keywords:
@@ -194,7 +195,7 @@ def find_item(query: str, warehouse_id: str = None):
 
         # cari berdasarkan nama (persis atau substring)
         for item in store.inventory.values():
-            if item.name.lower() == kw or kw in item.name.lower():
+            if item.name.lower() == kw or (kw and kw in item.name.lower()):
                 if warehouse_id:
                     wh = store.warehouses.get(warehouse_id)
                     if wh and item.item_id in wh.stock:
@@ -2762,7 +2763,7 @@ def dashboard():
     # Detail umum
     laporan_detail()
 # Admin
-def dashboard_admin(): # jumlah stok barangnya 0?, yg membedakan dahboard admin dengan utama apa?
+def dashboard_admin():
     print("\n\033[44m ============ DASHBOARD ADMIN ============ \033[0m")
 
     # Kondisi stok barang
@@ -4360,5 +4361,5 @@ if time.time() - last_action > 300:  # 5 menit idle
 - masih belum ada pencatatan untuk karyawan/akun yg dihapus
 - konfirmasi antar gudang ke admin berupa jumlah stok, blm terealisasikan msh all stok
 - di module penjualan menu transaksi kurang; metode bayar dan pencatatannya
-
+- nyimpan barang blm bisa disimpan di gudang pusat secra otomatis, jd pakai gudang default
 """
